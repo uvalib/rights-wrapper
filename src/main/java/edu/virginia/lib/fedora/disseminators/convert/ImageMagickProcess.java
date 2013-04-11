@@ -15,11 +15,11 @@ import java.util.regex.Pattern;
  * file.
  */
 public class ImageMagickProcess {
-    
+
     private String convertCommandPath; 
-    
+
     private String identifyCommandPath;
-    
+
     public static void main(String [] args) throws IOException, InterruptedException {
         ImageMagickProcess p = new ImageMagickProcess();
         p.addBorder(new File(args[0]), new File(args[1]), args[2]);
@@ -60,9 +60,6 @@ public class ImageMagickProcess {
             int pointSize = (int) ((float) width * 0.014f);
             int bottomBorderHeight = pointSize * 6;
 
-            //
-
-            //String command = convertCommandPath, "\"" + inputJpg.getAbsolutePath() + "\" " + arguments + " \"" + outputJpg + "\"";
             p = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
                         "-border", "20x" + bottomBorderHeight, 
                         "-bordercolor", "lightgray", 
