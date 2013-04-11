@@ -1,0 +1,38 @@
+<!--?xml version="1.0" encoding="UTF-8"?-->  
+<web-app version="2.5" xmlns="http://java.sun.com/xml/ns/j2ee"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <context-param>
+    <param-name>fedora-url</param-name>
+    <param-value>changeme</param-value>
+  </context-param>
+  <context-param>
+    <param-name>fedora-username</param-name>
+    <param-value>changeme</param-value>
+  </context-param>
+  <context-param>
+    <param-name>fedora-password</param-name>
+    <param-value>changeme</param-value>
+  </context-param>
+  <context-param>
+    <param-name>image-service</param-name>
+    <param-value>changeme</param-value>
+  </context-param>
+  <context-param>
+    <param-name>image-method</param-name>
+    <param-value>changeme</param-value>
+  </context-param>
+  <context-param>
+    <param-name>policy-pattern</param-name>
+    <param-value>changeme</param-value>
+  </context-param>
+  <servlet>
+    <servlet-name>Convert</servlet-name>
+    <servlet-class>edu.virginia.lib.fedora.disseminators.convert.ConvertServlet</servlet-class>
+    <load-on-startup>1</load-on-startup>
+  </servlet>
+
+  <servlet-mapping>
+    <servlet-name>Convert</servlet-name>
+    <url-pattern>/</url-pattern>
+  </servlet-mapping>
+</web-app>
