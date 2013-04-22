@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mods:mods xmlns:mods="http://www.loc.gov/mods/v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.loc.gov/mods/v3 http://www.loc.gov/standards/mods/v3/mods-3-3.xsd">
+  <mods:identifier type="pid" displayLabel="UVA Library Fedora Repository PID">uva-lib:378567</mods:identifier>
+  <mods:identifier type="uri" displayLabel="Accessible index record displayed in VIRGO" invalid="yes">uva-lib:378567</mods:identifier>
+  <mods:identifier type="local" displayLabel="Digitization Services Tracksys Unit ID">15771</mods:identifier>
+  <mods:identifier type="local" displayLabel="Digitization Services Tracksys MasterFile ID">731450</mods:identifier>
+  <mods:identifier type="local" displayLabel="Digitization Services Archive Filename">000015771_0020.tif</mods:identifier>
+  <mods:identifier type="legacy" displayLabel="Early American Fiction Identifier">eaf448_0020</mods:identifier>
+  <mods:titleInfo>
+    <mods:title>Title-Page</mods:title>
+  </mods:titleInfo>
+</mods:mods>
