@@ -202,7 +202,7 @@ public class ConvertServlet extends HttpServlet {
                 throw new ServletException(ex);
             }
         }
-        return "Under 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nNo further copies should be made. Copyright and other legal restrictions may apply. Special Collections, University of Virginia Library.";
+        return "Under 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nCopying or distribution is prohibited.  Copyright and other legal restrictions may apply.  University of Virginia Library.";
     }
 
     public String getCitationInformation(String pid) throws SAXException, IOException, ParserConfigurationException, FedoraClientException, JAXBException {

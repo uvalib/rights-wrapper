@@ -54,19 +54,33 @@ public class ImageMagickProcess {
         }
         Matcher m = pattern.matcher(baos.toString("UTF-8"));
         if (m.matches()) {
+            int linesOfText = label.trim().split("\\n").length;
             int width = Integer.parseInt(m.group(1));
             int height = Integer.parseInt(m.group(2));
             
-            int pointSize = (int) ((float) width * 0.014f);
-            int bottomBorderHeight = pointSize * 6;
+            int pointSize = (int) ((float) (width>height ? width : height) * 0.02f);
+            int textBoxHeight = (pointSize * linesOfText) + 20;
 
-            p = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
-                        "-border", "20x" + bottomBorderHeight, 
+            if (width > height) {
+                p = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
+                        "-border", "20x" + textBoxHeight, 
                         "-bordercolor", "lightgray", 
                         "-font", "Times-Roman", "-pointsize", String.valueOf(pointSize), 
                         "-gravity", "south", 
                         "-annotate", "+0+0+5+5", label,
-                        "-crop", (width + 40) +"x" + (height + bottomBorderHeight + 20) + "+0+0", outputJpg.getAbsolutePath()).start();
+                        "-crop", (width + 40) +"x" + (height + textBoxHeight + 20) + "+0+0", outputJpg.getAbsolutePath()).start();
+            } else {
+                p = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
+                        "-rotate", "90",
+                        "-border", "20x" + textBoxHeight, 
+                        "-bordercolor", "lightgray", 
+                        "-font", "Times-Roman", "-pointsize", String.valueOf(pointSize), 
+                        "-gravity", "south", 
+                        "-annotate", "+0+0+5+5", label,
+                        "-crop", (height + 40) +"x" + (width + textBoxHeight + 20) + "+0+0", 
+                        "-rotate", "-90",
+                        outputJpg.getAbsolutePath()).start();
+            }
             baos = new ByteArrayOutputStream();
             new Thread(new OutputDrainerThread(p.getInputStream(), baos)).start();
             new Thread(new OutputDrainerThread(p.getErrorStream(), baos)).start();
