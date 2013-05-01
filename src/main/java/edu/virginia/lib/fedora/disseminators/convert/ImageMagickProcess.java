@@ -54,30 +54,35 @@ public class ImageMagickProcess {
         }
         Matcher m = pattern.matcher(baos.toString("UTF-8"));
         if (m.matches()) {
-            int linesOfText = label.trim().split("\\n").length;
+            label = label.trim();
+            int linesOfText = label.split("\\n").length;
             int width = Integer.parseInt(m.group(1));
             int height = Integer.parseInt(m.group(2));
-            
-            int pointSize = (int) ((float) (width>height ? width : height) * 0.02f);
-            int textBoxHeight = (pointSize * linesOfText) + 20;
+            label = label + "\n";
 
-            if (width > height) {
+            int pointSize = (int) ((float) (width>height ? width : height) * 0.02f);
+            int textBoxHeight = (pointSize * (linesOfText + 1));
+
+            if ((width * 1.5) > height) {
+                if (height > width) {
+                    pointSize = Math.round((float) pointSize / ((float) height / (float) width));
+                }
                 p = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
-                        "-border", "20x" + textBoxHeight, 
+                        "-border", (pointSize * 2) + "x" + textBoxHeight, 
                         "-bordercolor", "lightgray", 
                         "-font", "Times-Roman", "-pointsize", String.valueOf(pointSize), 
                         "-gravity", "south", 
                         "-annotate", "+0+0+5+5", label,
-                        "-crop", (width + 40) +"x" + (height + textBoxHeight + 20) + "+0+0", outputJpg.getAbsolutePath()).start();
+                        "-crop", (width + (pointSize * 2)) +"x" + (height + textBoxHeight + pointSize) + "+0+0", outputJpg.getAbsolutePath()).start();
             } else {
                 p = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
                         "-rotate", "90",
-                        "-border", "20x" + textBoxHeight, 
+                        "-border", (pointSize * 2) + "x" + textBoxHeight, 
                         "-bordercolor", "lightgray", 
                         "-font", "Times-Roman", "-pointsize", String.valueOf(pointSize), 
                         "-gravity", "south", 
                         "-annotate", "+0+0+5+5", label,
-                        "-crop", (height + 40) +"x" + (width + textBoxHeight + 20) + "+0+0", 
+                        "-crop", (height + (pointSize * 2)) +"x" + (width + textBoxHeight + pointSize) + "+0+0", 
                         "-rotate", "-90",
                         outputJpg.getAbsolutePath()).start();
             }
