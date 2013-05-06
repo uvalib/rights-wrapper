@@ -25,6 +25,10 @@
     <param-name>policy-pattern</param-name>
     <param-value>changeme</param-value>
   </context-param>
+  <context-param>
+    <param-name>default-policy-pid</param-name>
+    <param-value>changeme</param-value>
+  </context-param>
   <servlet>
     <servlet-name>Convert</servlet-name>
     <servlet-class>edu.virginia.lib.fedora.disseminators.convert.ConvertServlet</servlet-class>

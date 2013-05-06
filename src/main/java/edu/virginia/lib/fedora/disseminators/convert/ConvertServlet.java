@@ -54,11 +54,17 @@ public class ConvertServlet extends HttpServlet {
 
     private FedoraClient fc;
 
+    private String defaultPolicyPid;
+
     public void init() throws ServletException {
         try {
             convert = new ImageMagickProcess();
             fc = new FedoraClient(new FedoraCredentials(getServletContext().getInitParameter("fedora-url"), getServletContext().getInitParameter("fedora-username"), getServletContext().getInitParameter("fedora-password")));
             policyPattern = Pattern.compile(getServletContext().getInitParameter("policy-pattern"));
+            defaultPolicyPid = getServletContext().getInitParameter("default-policy-pid");
+            if (defaultPolicyPid == null) {
+                logger.warn("No default-policy-pid specified!");
+            }
             logger.trace("Servlet startup complete.");
         } catch (IOException ex) {
             logger.error("Unable to start ConvertServlet", ex);
@@ -182,27 +188,41 @@ public class ConvertServlet extends HttpServlet {
             if (m.matches()) {
                 String policyPid = m.group(1);
                 logger.info("Request for " + pid + " is affected by POLICY " + policyPid + ".");
-                BufferedReader r = new BufferedReader(new InputStreamReader(FedoraClient.getDatastreamDissemination(policyPid, "wrapperText").execute(fc).getEntityInputStream()));
-                StringBuffer s = new StringBuffer();
-                String line = null;
-                while ((line = r.readLine()) != null) {
-                    s.append(line + "\n");
-                }
-                logger.info("Applied policy text from policy object " + policyPid + ".");
-                return s.toString();
+                return getPolicyWrapperText(policyPid);
             } else {
                 // unknown policy: fall through with default disclaimer
                 logger.warn("Unknown policy URL: " + policyUrl);
             }
         } catch (FedoraClientException ex) {
             if (ex.getMessage() != null && ex.getMessage().contains("404")) {
-                // no policy text, fall through and display default disclaimer
+                // no policy text, fetch the default policy text
+                if (defaultPolicyPid != null) {
+                    try {
+                        return getPolicyWrapperText(defaultPolicyPid);
+                    } catch (FedoraClientException ex2) {
+                        logger.error("Unable to fetch default policy from " + defaultPolicyPid + "!", ex2);
+                        // fall through and display the last resort default
+                    }
+                } else {
+                    // fall through and display the last resort default
+                }
             } else {
                 logger.warn("Error determining policy!", ex);
                 throw new ServletException(ex);
             }
         }
-        return "Under 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nCopying or distribution is prohibited.  Copyright and other legal restrictions may apply.  University of Virginia Library.";
+        return "Under 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nCopyright and other legal restrictions may apply.  Commercial use without permission is prohibited.\nUniversity of Virginia Library.";
+    }
+
+    private String getPolicyWrapperText(String policyPid) throws IOException, FedoraClientException {
+        BufferedReader r = new BufferedReader(new InputStreamReader(FedoraClient.getDatastreamDissemination(policyPid, "wrapperText").execute(fc).getEntityInputStream()));
+        StringBuffer s = new StringBuffer();
+        String line = null;
+        while ((line = r.readLine()) != null) {
+            s.append(line + "\n");
+        }
+        logger.info("Applied policy text from policy object " + policyPid + ".");
+        return s.toString();
     }
 
     public String getCitationInformation(String pid) throws SAXException, IOException, ParserConfigurationException, FedoraClientException, JAXBException {
