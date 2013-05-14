@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+<mods:mods xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:mods="http://www.loc.gov/mods/v3" version="3.4" xsi:schemaLocation="http://www.loc.gov/mods/v3 http://www.loc.gov/standards/mods/v3/mods-3-4.xsd">
+   <mods:titleInfo xmlns:xs="http://www.w3.org/2001/XMLSchema">
+      <mods:title>Finale til Baletten</mods:title>
+      <mods:subTitle>Livjægerne paa Amager [Galop]</mods:subTitle>
+   </mods:titleInfo>
+   <mods:name xmlns:xs="http://www.w3.org/2001/XMLSchema" type="personal" usage="primary">
+      <mods:namePart>Lumbye, H. C. (Hans Christian)</mods:namePart>
+      <mods:namePart type="date">1810-1874</mods:namePart>
+   </mods:name>
+   <mods:typeOfResource xmlns:xs="http://www.w3.org/2001/XMLSchema">notated music</mods:typeOfResource>
+   <mods:originInfo xmlns:xs="http://www.w3.org/2001/XMLSchema">
+      <mods:place>
+         <mods:placeTerm type="code" authority="marccountry">dk</mods:placeTerm>
+      </mods:place>
+      <mods:place>
+         <mods:placeTerm type="text">Kjo&#776;benhavn</mods:placeTerm>
+      </mods:place>
+      <mods:publisher>Chr. E. Hornemans Forlag og Eiendom</mods:publisher>
+      <mods:dateIssued>[187-?]</mods:dateIssued>
+      <mods:dateIssued encoding="marc" point="start" qualifier="questionable">1870</mods:dateIssued>
+      <mods:dateIssued encoding="marc" point="end" qualifier="questionable">1879</mods:dateIssued>
+      <mods:issuance>monographic</mods:issuance>
+      <mods:frequency/>
+   </mods:originInfo>
+   <mods:language>
+      <mods:languageTerm authority="iso639-2b" type="code">zxx</mods:languageTerm>
+   </mods:language>
+   <mods:physicalDescription>
+      <mods:digitalOrigin>reformatted digital</mods:digitalOrigin>
+      <mods:form authority="marcform">print</mods:form>
+      <mods:extent>[3] p. 33 cm.</mods:extent>
+   </mods:physicalDescription>
+   <mods:note xmlns:xs="http://www.w3.org/2001/XMLSchema" type="local">SPECIAL COLLECTIONS: Inscribed by E. Swift Balch, Copenhagen, May 5, 187-? Balch gift.</mods:note>
+   <mods:note xmlns:xs="http://www.w3.org/2001/XMLSchema" type="local">SPECIAL COLLECTIONS: Bookstamp of Wilhelm Hansen.</mods:note>
+   <mods:subject xmlns:xs="http://www.w3.org/2001/XMLSchema" authority="lcsh">
+      <mods:name type="personal">
+         <mods:namePart>Clark, Emily</mods:namePart>
+         <mods:namePart type="date">1893-1953</mods:namePart>
+      </mods:name>
+      <mods:titleInfo>
+         <mods:title/>
+      </mods:titleInfo>
+      <mods:topic>Library</mods:topic>
+      <mods:genre>Personal copy</mods:genre>
+   </mods:subject>
+   <mods:subject xmlns:xs="http://www.w3.org/2001/XMLSchema" authority="lcsh">
+      <mods:topic>Galops</mods:topic>
+   </mods:subject>
+   <mods:classification xmlns:xs="http://www.w3.org/2001/XMLSchema" authority="dlc">M1 .S444 v.174, no.7</mods:classification>
+   <mods:relatedItem xmlns:xs="http://www.w3.org/2001/XMLSchema" type="series">
+      <mods:titleInfo>
+         <mods:title>Dandse for pianoforte, 2den. suite</mods:title>
+      </mods:titleInfo>
+   </mods:relatedItem>
+   <mods:relatedItem xmlns:xs="http://www.w3.org/2001/XMLSchema" type="series">
+      <mods:titleInfo>
+         <mods:title>[Sheet music collection, v. 174, no. 7]</mods:title>
+      </mods:titleInfo>
+   </mods:relatedItem>
+   <mods:location>
+      <mods:holdingSimple>
+         <mods:copyInformation>
+            <mods:subLocation>SPEC-COLL</mods:subLocation>
+            <mods:shelfLocator>FOLIO</mods:shelfLocator>
+            <mods:note type="call_number">M1 .S444 v.174  no.7</mods:note>
+            <mods:note type="call_number_sort">ALPHANUM</mods:note>
+            <mods:note type="barcode">2038814-1001</mods:note>
+         </mods:copyInformation>
+      </mods:holdingSimple>
+   </mods:location>
+   <mods:identifier type="oclc">26277029</mods:identifier>
+   <mods:identifier type="uri" displayLabel="Accessible index record displayed in VIRGO">uva-lib:2141114</mods:identifier>
+   <mods:recordInfo xmlns:xs="http://www.w3.org/2001/XMLSchema">
+      <mods:recordContentSource authority="marcorg">VA@</mods:recordContentSource>
+      <mods:recordCreationDate encoding="marc">920728</mods:recordCreationDate>
+      <mods:recordIdentifier source="SIRSI">u2038814</mods:recordIdentifier>
+      <mods:recordOrigin>Converted from MARCXML to MODS version 3.4 using MARC21slim2MODS3-4.xsl (Revision 1.70). UVA (Revision 1.709)</mods:recordOrigin>
+   </mods:recordInfo>
+</mods:mods>

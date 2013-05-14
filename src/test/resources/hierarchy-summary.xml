@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component>
+   <breadcrumbs>
+      <ancestor>
+         <id>uva-lib:2137307</id>
+         <title>Daily Progress Digitized Microfilm</title>
+      </ancestor>
+      <ancestor>
+         <id>uva-lib:2137317</id>
+         <title>Issues from 1901</title>
+      </ancestor>
+      <ancestor>
+         <id>uva-lib:2137726</id>
+         <title>Daily Progress Issues from March 1901</title>
+      </ancestor>
+   </breadcrumbs>
+   <type>item</type>
+   <unittitle>Daily Progress, March 04, 1901</unittitle>
+   <scopecontent>
+      <p_count>1</p_count>
+      <p>From reel 007</p>
+   </scopecontent>
+</component>

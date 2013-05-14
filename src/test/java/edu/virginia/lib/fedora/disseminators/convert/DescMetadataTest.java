@@ -44,4 +44,33 @@ public class DescMetadataTest {
         Assert.assertEquals("Title should be \"" + expectedTitle + "\".", expectedTitle, m.getFirstTitle());
     }
 
+    /**
+     * Sometimes a citation has to be built by interpreting the code "SPEC-COLL"
+     * from within a 
+     * mods:location/mods:holidngSimple/mods:copyInformation/mods:subLocation
+     * field.  This test ensures that that happens properly.
+     */
+    @Test
+    public void testCitationFromCode() throws Exception {
+        JAXBContext jc = JAXBContext.newInstance(DescMetadata.class);
+        Unmarshaller u = jc.createUnmarshaller();
+        DescMetadata m = (DescMetadata) u.unmarshal(getClass().getClassLoader().getResourceAsStream("sheet-music-mods.xml"));
+        String expectedCitation = "Finale til Baletten, M1 .S444 v.174, no.7, Special Collections, University of Virginia Library, Charlottesville, Va.";
+        Assert.assertEquals("Citation should be \"" + expectedCitation + "\".", expectedCitation, m.buildCitation());
+    }
+
+    /**
+     * Sometimes a citation has to be build using a location from the 
+     * mods:location/mods:physicalLocation field.  This test ensures that the
+     * method of doing so works.
+     */
+    @Test
+    public void testCitationFromPhysicalLocation() throws Exception {
+        JAXBContext jc = JAXBContext.newInstance(DescMetadata.class);
+        Unmarshaller u = jc.createUnmarshaller();
+        DescMetadata m = (DescMetadata) u.unmarshal(getClass().getClassLoader().getResourceAsStream("image-mods.xml"));
+        String expectedCitation = "Monticello , Special Collections, University of Virginia Library, Charlottesville, Va.";
+        Assert.assertEquals("Citation should be \"" + expectedCitation + "\".", expectedCitation, m.buildCitation());
+    }
+
 }

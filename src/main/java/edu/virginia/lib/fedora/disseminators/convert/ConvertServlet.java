@@ -8,6 +8,10 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -38,6 +42,7 @@ import org.xml.sax.SAXException;
 import com.yourmediashelf.fedora.client.FedoraClient;
 import com.yourmediashelf.fedora.client.FedoraClientException;
 import com.yourmediashelf.fedora.client.FedoraCredentials;
+import com.yourmediashelf.fedora.generated.access.DatastreamType;
 
 /**
  * A servlet that accepts the pid of an image object in fedora and returns the
@@ -83,7 +88,7 @@ public class ConvertServlet extends HttpServlet {
         String disclaimer = getPolicyDisclaimer(pid);
         String citation = "";
         try {
-            citation = getCitationInformation(pid);
+            citation = wrapLongLines(getCitationInformation(pid), 130, ',');
         } catch (Exception ex) {
             logger.error("Unable to generate citation for " + pid + "!", ex);
         }
@@ -115,6 +120,39 @@ public class ConvertServlet extends HttpServlet {
             long end = System.currentTimeMillis();
             logger.info("Serviced request for \"" + pid + "\" (" + size + " bytes) in " + (end - start) + "ms.");
         }
+    }
+
+    /**
+     * Iterates over lines of text (as delimited by the \\n character) and 
+     * returns a new String that is a copy of the provided text with line
+     * breaks added after the closest breakpoint before the string length 
+     * exceeds the maxLength.  Whitespace is trimmed from each new line.
+     */
+    static String wrapLongLines(String text, int maxLength, char breakpoint) {
+        StringBuffer wrapped = new StringBuffer();
+        for (String s : text.split("\n")) {
+            while (s.length() > maxLength) {
+                boolean found = false;
+                for (int i = maxLength - 1; i > 0; i --) {
+                    if (s.charAt(i) == breakpoint) {
+                        wrapped.append(s.substring(0, i+1).trim());
+                        wrapped.append("\n");
+                        s = s.substring(i+1);
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    // no good breakpoint found, break it at the maxLength
+                    wrapped.append(s.substring(0, maxLength).trim());
+                    wrapped.append("\n");
+                    s = s.substring(maxLength);
+                }
+            }
+            wrapped.append(s.trim());
+            wrapped.append("\n");
+        }
+        return wrapped.toString().trim();
     }
 
     public void addUserComment(File jpegin, File jpegout, String comment) throws IOException, ImageReadException, ImageWriteException {
@@ -225,26 +263,67 @@ public class ConvertServlet extends HttpServlet {
         return s.toString();
     }
 
+    /**
+     * Queries the repository for a bibliographic citation for an object with
+     * the given pid.  The current implementation determins this citation the
+     * following way:
+     * 
+     * 1.  If the item represents the full record...
+     * 1a.   And it has a MARC record with a citation, that citation is used
+     * @param pid
+     * @return
+     * @throws SAXException
+     * @throws IOException
+     * @throws ParserConfigurationException
+     * @throws FedoraClientException
+     * @throws JAXBException
+     */
     public String getCitationInformation(String pid) throws SAXException, IOException, ParserConfigurationException, FedoraClientException, JAXBException {
         // fetch and parse the metadata record
-        DescMetadata m = parseDescMetadata(pid);
-        if (m.isFullRecord()) {
-            return "Title: " + m.getFirstTitle() + "\n"
-                    + "URL: http://search.lib.virginia.edu/catalog/" + pid + "/view\n";   
+        DescMetadata m = parseMODSDatastream(pid);
+        if (m == null) {
+            // everything is expected to have a MODS record at the digital 
+            // image level, but if for some reason we can't get it, return
+            // the default citation.
+            return "UVA Library Resource\nhttp://search.lib.virginia.edu/\n";
+        }
+
+        Map<String, List<String>> catalogRecordMap = getParentMetadataRecordAndContentModels(pid);
+        if (catalogRecordMap.size() != 1) {
+            // unable to determine a single item level record, return a
+            // mostly-worthless citation.
+            return "Citation: " + m.buildCitation() + "\n"
+            + "Online Access: http://search.lib.virginia.edu/catalog/" + (m.isFullRecord() ? pid : "") + "\n";
         } else {
-            // get the full catalog record
-            BufferedReader r = new BufferedReader(new InputStreamReader(FedoraClient.riSearch(getRISearchQueryForParentMetadataRecord(pid)).lang("itql").format("csv").execute(fc).getEntityInputStream()));
-            String catalogRecordUri = r.readLine();
-            catalogRecordUri = r.readLine();
-            if (catalogRecordUri != null) {
-                String catlogRecordPid = catalogRecordUri.substring("info:fedora/".length());
-                DescMetadata parentMd = parseDescMetadata(catlogRecordPid);
-                return "Title: " + parentMd.getFirstTitle() + " -- " + m.getFirstTitle() + "\n"
-                        + "URL: http://search.lib.virginia.edu/catalog/" + catlogRecordPid + "/view?page=" + pid + "\n";
+            String catalogRecordPid = catalogRecordMap.keySet().iterator().next();
+            if (catalogRecordMap.get(catalogRecordPid).contains("uva-lib:eadItemCModel")) {
+                // Hierarchical DL content
+                // 1. parse the uva-lib:hierarchicalMetadataSDef/getSummary response
+                ComponentSummary s = ComponentSummary.parseBreadcrumbs(FedoraClient.getDissemination(catalogRecordPid, "uva-lib:hierarchicalMetadataSDef", "getSummary").execute(fc).getEntityInputStream());
+                // 2. return a citation built from that information
+                return "Citation: " + m.getFirstTitle() + ", " + s.getItemTitle() + ", " + s.getCollectionTitle() + "\n"
+                        + "Collection Record: http://search.lib.virginia.edu/catalog/" + s.getCollectionPid() + "\n"
+                        + "Online Access: http://search.lib.virginia.edu/catalog/" + catalogRecordPid + "/view?page=" + pid + "\n";
             } else {
-                // unable to find catalog record, return no citation
-                return "UVA Library Resource\nhttp://search.lib.virginia.edu/\n";
+                // Tranditional DL content
+                DescMetadata parentMd = parseMODSDatastream(catalogRecordPid);
+                if (parentMd != null) {
+                    MarcMetadata parentMarc = parseMARCDatastream(catalogRecordPid);
+                    String citation = null;
+                    if (parentMarc != null && parentMarc.getCitation() != null) {
+                        citation = parentMarc.getCitation();
+                    } else {
+                        citation = parentMd.buildCitation();
+                    }
+                    return "Citation: " + citation + "\n"
+                            + "Catalog Record: http://search.lib.virginia.edu/catalog/" + catalogRecordPid + "\n"
+                            + "Online Access: http://search.lib.virginia.edu/catalog/" + (m.isFullRecord() ? pid : catalogRecordPid + "/view?page=" + pid) + "\n"
+                            + "Page Title: " + m.getFirstTitle() + "\n";
+                } else {
+                    return "UVA Library Resource\nhttp://search.lib.virginia.edu/\n";
+                }
             }
+
         }
     }
 
@@ -252,27 +331,56 @@ public class ConvertServlet extends HttpServlet {
      * There are several relationship chains that link image objects to the 
      * metadata records.  This method is meant to contain all of those 
      * possibilities in a single RISearch query.
+     * @throws FedoraClientException 
+     * @throws IOException 
      */
-    private String getRISearchQueryForParentMetadataRecord(String pid) {
-        return "select $catalogRecord from <#ri>"
-                + " where <info:fedora/" + pid + "> <http://fedora.lib.virginia.edu/relationships#hasCatalogRecordIn> $catalogRecord"
-                + " or ($catalogRecord <http://fedora.lib.virginia.edu/relationships#isMetadataPlaceholderFor> $groupObject" 
-                + " and $groupObject <http://fedora.lib.virginia.edu/relationships#hasDigitalRepresentation> <info:fedora/" + pid + ">)";
+    private Map<String, List<String>> getParentMetadataRecordAndContentModels(String pid) throws FedoraClientException, IOException {
+        String itqlQuery = "select $catalogRecord $model from <#ri>"
+                + " where (<info:fedora/" + pid + "> <http://fedora.lib.virginia.edu/relationships#hasCatalogRecordIn> $catalogRecord"
+                + " or $catalogRecord <http://fedora.lib.virginia.edu/relationships#hasDigitalRepresentation> <info:fedora/" + pid + ">" 
+                + " or <info:fedora/" + pid + "> <http://fedora.lib.virginia.edu/relationships#isDigitalRepresentationOf> $catalogRecord)"
+                + " and $catalogRecord <info:fedora/fedora-system:def/model#hasModel> $model";
+
+        BufferedReader r = new BufferedReader(new InputStreamReader(FedoraClient.riSearch(itqlQuery).lang("itql").format("csv").execute(fc).getEntityInputStream()));
+        String line = r.readLine();
+        Map<String, List<String>> map = new HashMap<String, List<String>>();
+        while ((line = r.readLine()) != null) {
+            String[] cols = line.split(",");
+            String parentPid = cols[0].substring("info:fedora/".length());
+            String parentCmodel = cols[1].substring("info:fedora/".length());
+            List<String> cmodels = map.get(parentPid);
+            if (cmodels == null) {
+                cmodels = new ArrayList<String>();
+                map.put(parentPid, cmodels);
+            }
+            cmodels.add(parentCmodel);
+        }
+        return map;
+       
     }
 
     /**
-     * There are at least two ways to get MODS records from a given object,
-     * this method is meant to contain all of those possibilities.
-     */
-    private DescMetadata parseDescMetadata(String pid) throws JAXBException, FedoraClientException {
+     * Parses the "descMetadata" datastream from an object as a MODS record.
+     * @return a DescMetadata object or null if unable to read the datastream 
+     * as a MODS record.
+     */ 
+    private DescMetadata parseMODSDatastream(String pid) throws JAXBException, FedoraClientException {
         JAXBContext jc = JAXBContext.newInstance(DescMetadata.class);
         Unmarshaller u = jc.createUnmarshaller();
         try {
-            // first try the datastream
             return (DescMetadata) u.unmarshal(FedoraClient.getDatastreamDissemination(pid, "descMetadata").execute(fc).getEntityInputStream());
         } catch (FedoraClientException ex) {
-            // next try the disseminator (EAD content)
-            return (DescMetadata) u.unmarshal(FedoraClient.getDissemination(pid, "uva-lib:descMetadataSDef", "getMetadataAsMODS").execute(fc).getEntityInputStream());
+            return null;
+        }
+    }
+
+    private MarcMetadata parseMARCDatastream(String pid) throws JAXBException {
+        JAXBContext jc = JAXBContext.newInstance(MarcMetadata.class);
+        Unmarshaller u = jc.createUnmarshaller();
+        try {
+            return (MarcMetadata) u.unmarshal(FedoraClient.getDatastreamDissemination(pid, "MARC").execute(fc).getEntityInputStream());
+        } catch (FedoraClientException ex) {
+            return null;
         }
     }
 }
