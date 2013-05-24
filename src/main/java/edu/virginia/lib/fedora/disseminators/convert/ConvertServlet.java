@@ -93,32 +93,39 @@ public class ConvertServlet extends HttpServlet {
             logger.error("Unable to generate citation for " + pid + "!", ex);
         }
 
-        File orig = File.createTempFile(pid + "-orig-", ".jpg");
-        File framed = File.createTempFile(pid + "-wrapped-", ".jpg");
-        File tagged = File.createTempFile(pid + "-wrapped-tagged-", ".jpg");
-        try {
-            System.out.println(pid + " " + getServletContext().getInitParameter("image-service") + " " + getServletContext().getInitParameter("image-method"));
-            IOUtils.copy(FedoraClient.getDissemination(pid, getServletContext().getInitParameter("image-service"), getServletContext().getInitParameter("image-method")).methodParam("rotate", "").methodParam("scale", "0.5").execute(fc).getEntityInputStream(), new FileOutputStream(orig));
-
-            // add the frame
-            convert.addBorder(orig, framed, citation + "\n" + disclaimer);
-
-            // add the exif
-            addUserComment(framed, tagged, citation + "\n" + disclaimer);
-
-            // return the content
-            resp.setContentType("image/jpeg");
+        if (req.getParameter("justMetadata") != null) {
+            resp.setContentType("text/plain");
             resp.setStatus(HttpServletResponse.SC_OK);
-            IOUtils.copy(new FileInputStream(tagged), resp.getOutputStream());
-        } catch (Exception ex) {
-            throw new ServletException(ex);
-        } finally {
-            long size = orig.length();
-            orig.delete();
-            framed.delete();
-            tagged.delete();
-            long end = System.currentTimeMillis();
-            logger.info("Serviced request for \"" + pid + "\" (" + size + " bytes) in " + (end - start) + "ms.");
+            resp.getOutputStream().write((citation + "\n" + disclaimer).getBytes("UTF-8"));
+            resp.getOutputStream().close();
+        } else {
+            File orig = File.createTempFile(pid + "-orig-", ".jpg");
+            File framed = File.createTempFile(pid + "-wrapped-", ".jpg");
+            File tagged = File.createTempFile(pid + "-wrapped-tagged-", ".jpg");
+            try {
+                System.out.println(pid + " " + getServletContext().getInitParameter("image-service") + " " + getServletContext().getInitParameter("image-method"));
+                IOUtils.copy(FedoraClient.getDissemination(pid, getServletContext().getInitParameter("image-service"), getServletContext().getInitParameter("image-method")).methodParam("rotate", "").methodParam("scale", "0.5").execute(fc).getEntityInputStream(), new FileOutputStream(orig));
+    
+                // add the frame
+                convert.addBorder(orig, framed, citation + "\n" + disclaimer);
+    
+                // add the exif
+                addUserComment(framed, tagged, citation + "\n" + disclaimer);
+    
+                // return the content
+                resp.setContentType("image/jpeg");
+                resp.setStatus(HttpServletResponse.SC_OK);
+                IOUtils.copy(new FileInputStream(tagged), resp.getOutputStream());
+            } catch (Exception ex) {
+                throw new ServletException(ex);
+            } finally {
+                long size = orig.length();
+                orig.delete();
+                framed.delete();
+                tagged.delete();
+                long end = System.currentTimeMillis();
+                logger.info("Serviced request for \"" + pid + "\" (" + size + " bytes) in " + (end - start) + "ms.");
+            }
         }
     }
 
