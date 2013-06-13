@@ -14,6 +14,10 @@
     <param-value>changeme</param-value>
   </context-param>
   <context-param>
+    <param-name>solr-url</param-name>
+    <param-value>changeme</param-value>
+  </context-param>
+  <context-param>
     <param-name>image-service</param-name>
     <param-value>changeme</param-value>
   </context-param>

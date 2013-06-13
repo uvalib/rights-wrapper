@@ -35,6 +35,10 @@ import org.apache.commons.imaging.formats.tiff.constants.ExifTagConstants;
 import org.apache.commons.imaging.formats.tiff.write.TiffOutputDirectory;
 import org.apache.commons.imaging.formats.tiff.write.TiffOutputSet;
 import org.apache.commons.io.IOUtils;
+import org.apache.solr.client.solrj.SolrServer;
+import org.apache.solr.client.solrj.SolrServerException;
+import org.apache.solr.client.solrj.impl.CommonsHttpSolrServer;
+import org.apache.solr.common.params.ModifiableSolrParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
@@ -42,7 +46,6 @@ import org.xml.sax.SAXException;
 import com.yourmediashelf.fedora.client.FedoraClient;
 import com.yourmediashelf.fedora.client.FedoraClientException;
 import com.yourmediashelf.fedora.client.FedoraCredentials;
-import com.yourmediashelf.fedora.generated.access.DatastreamType;
 
 /**
  * A servlet that accepts the pid of an image object in fedora and returns the
@@ -59,6 +62,8 @@ public class ConvertServlet extends HttpServlet {
 
     private FedoraClient fc;
 
+    private SolrServer solr;
+
     private String defaultPolicyPid;
 
     public void init() throws ServletException {
@@ -70,6 +75,7 @@ public class ConvertServlet extends HttpServlet {
             if (defaultPolicyPid == null) {
                 logger.warn("No default-policy-pid specified!");
             }
+            solr = new CommonsHttpSolrServer(getServletContext().getInitParameter("solr-url"));
             logger.trace("Servlet startup complete.");
         } catch (IOException ex) {
             logger.error("Unable to start ConvertServlet", ex);
@@ -103,7 +109,6 @@ public class ConvertServlet extends HttpServlet {
             File framed = File.createTempFile(pid + "-wrapped-", ".jpg");
             File tagged = File.createTempFile(pid + "-wrapped-tagged-", ".jpg");
             try {
-                System.out.println(pid + " " + getServletContext().getInitParameter("image-service") + " " + getServletContext().getInitParameter("image-method"));
                 IOUtils.copy(FedoraClient.getDissemination(pid, getServletContext().getInitParameter("image-service"), getServletContext().getInitParameter("image-method")).methodParam("rotate", "").methodParam("scale", "0.5").execute(fc).getEntityInputStream(), new FileOutputStream(orig));
     
                 // add the frame
@@ -309,8 +314,12 @@ public class ConvertServlet extends HttpServlet {
                 ComponentSummary s = ComponentSummary.parseBreadcrumbs(FedoraClient.getDissemination(catalogRecordPid, "uva-lib:hierarchicalMetadataSDef", "getSummary").execute(fc).getEntityInputStream());
                 // 2. return a citation built from that information
                 return "Citation: " + m.getFirstTitle() + ", " + s.getItemTitle() + ", " + s.getCollectionTitle() + "\n"
-                        + "Collection Record: http://search.lib.virginia.edu/catalog/" + s.getCollectionPid() + "\n"
-                        + "Online Access: http://search.lib.virginia.edu/catalog/" + catalogRecordPid + "/view?page=" + pid + "\n";
+                        + (!isRecordHiddenInSolr(s.getCollectionPid())
+                                ? "Collection Record: http://search.lib.virginia.edu/catalog/" + s.getCollectionPid() + "\n"
+                                : "")
+                        + (!isRecordHiddenInSolr(catalogRecordPid)
+                                ? "Online Access: http://search.lib.virginia.edu/catalog/" + catalogRecordPid + "/view?page=" + pid + "\n"
+                                : "");
             } else {
                 // Tranditional DL content
                 DescMetadata parentMd = parseMODSDatastream(catalogRecordPid);
@@ -323,14 +332,35 @@ public class ConvertServlet extends HttpServlet {
                         citation = parentMd.buildCitation();
                     }
                     return "Citation: " + citation + "\n"
-                            + "Catalog Record: http://search.lib.virginia.edu/catalog/" + catalogRecordPid + "\n"
+                            + (!isRecordHiddenInSolr(catalogRecordPid)
+                                    ? "Catalog Record: http://search.lib.virginia.edu/catalog/" + catalogRecordPid + "\n"
+                                    : "")
                             + "Online Access: http://search.lib.virginia.edu/catalog/" + (m.isFullRecord() ? pid : catalogRecordPid + "/view?page=" + pid) + "\n"
                             + "Page Title: " + m.getFirstTitle() + "\n";
                 } else {
                     return "UVA Library Resource\nhttp://search.lib.virginia.edu/\n";
                 }
             }
+        }
+    }
 
+    /**
+     * Queries Sole for the record with the given id and a 
+     * "shadowed_location_facet" value not equal to "hidden".  If no records
+     * are returned, this method returns true.  If one record is found this
+     * method will return false.  
+     */
+    private boolean isRecordHiddenInSolr(String id) {
+        ModifiableSolrParams params = new ModifiableSolrParams();
+        params.set("q", "+id:\"" + id + "\" -shadowed_location_facet:HIDDEN");
+        logger.debug("Querying solr for " + params.get("q"));
+        params.set("rows", "0");
+        try {
+            long count = solr.query(params).getResults().getNumFound();
+            return (count == 0);
+        } catch (SolrServerException ex) {
+            logger.error("Error querying solr to see if record " + id + " is shadowed!", ex);
+            return false;
         }
     }
 
