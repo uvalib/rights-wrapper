@@ -7,6 +7,8 @@ import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.apache.commons.io.FileUtils;
+
 /**
  * A thin wrapper around the ImageMagick's "convert" utility.
  * For this class to work, the "convert" utility must be in the
@@ -94,7 +96,9 @@ public class ImageMagickProcess {
                 throw new RuntimeException("Invalid return code for process!");
             }
         } else {
-            throw new RuntimeException("Unable to parse output: \"" + baos.toString("UTF-8") + "\"");
+            File copy = File.createTempFile("problematic-file", ".jpg");
+            FileUtils.copyFile(inputJpg, copy);
+            throw new RuntimeException("Unable to parse image dimensions from ImageMagick identify output: \"" + baos.toString("UTF-8") + "\" (problematic file copied to " + copy.getAbsolutePath() + ")");
         }
     }
 }

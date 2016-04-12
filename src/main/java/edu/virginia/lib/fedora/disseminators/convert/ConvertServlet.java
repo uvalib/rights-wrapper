@@ -27,7 +27,7 @@ import javax.xml.parsers.ParserConfigurationException;
 import org.apache.commons.imaging.ImageReadException;
 import org.apache.commons.imaging.ImageWriteException;
 import org.apache.commons.imaging.Imaging;
-import org.apache.commons.imaging.common.IImageMetadata;
+import org.apache.commons.imaging.common.ImageMetadata;
 import org.apache.commons.imaging.formats.jpeg.JpegImageMetadata;
 import org.apache.commons.imaging.formats.jpeg.exif.ExifRewriter;
 import org.apache.commons.imaging.formats.tiff.TiffImageMetadata;
@@ -96,7 +96,7 @@ public class ConvertServlet extends HttpServlet {
         try {
             citation = wrapLongLines(getCitationInformation(pid), 130, ',');
         } catch (Exception ex) {
-            logger.error("Unable to generate citation for " + pid + "!", ex);
+            logger.info("Unable to generate citation for " + pid + ", will return an image without a citation.");
         }
 
         if (req.getParameter("justMetadata") != null) {
@@ -109,8 +109,12 @@ public class ConvertServlet extends HttpServlet {
             File framed = File.createTempFile(pid + "-wrapped-", ".jpg");
             File tagged = File.createTempFile(pid + "-wrapped-tagged-", ".jpg");
             try {
-                IOUtils.copy(FedoraClient.getDissemination(pid, getServletContext().getInitParameter("image-service"), getServletContext().getInitParameter("image-method")).methodParam("rotate", "").methodParam("scale", "0.5").execute(fc).getEntityInputStream(), new FileOutputStream(orig));
-    
+                FileOutputStream origOut = new FileOutputStream(orig);
+                try {
+                    IOUtils.copy(FedoraClient.getDissemination(pid, getServletContext().getInitParameter("image-service"), getServletContext().getInitParameter("image-method")).methodParam("rotate", "").methodParam("scale", "0.5").execute(fc).getEntityInputStream(), origOut);
+                } finally {
+                    origOut.close();
+                }
                 // add the frame
                 convert.addBorder(orig, framed, citation + "\n" + disclaimer);
     
@@ -173,7 +177,7 @@ public class ConvertServlet extends HttpServlet {
             TiffOutputSet outputSet = null;
 
             // note that metadata might be null if no metadata is found.
-            IImageMetadata metadata = Imaging.getMetadata(jpegin);
+            ImageMetadata metadata = Imaging.getMetadata(jpegin);
             JpegImageMetadata jpegMetadata = (JpegImageMetadata) metadata;
             if (null != jpegMetadata) {
                 // note that exif might be null if no Exif metadata is found.
