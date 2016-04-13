@@ -38,6 +38,7 @@ import org.apache.commons.io.IOUtils;
 import org.apache.solr.client.solrj.SolrServer;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.CommonsHttpSolrServer;
+import org.apache.solr.client.solrj.impl.XMLResponseParser;
 import org.apache.solr.common.params.ModifiableSolrParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -76,6 +77,7 @@ public class ConvertServlet extends HttpServlet {
                 logger.warn("No default-policy-pid specified!");
             }
             solr = new CommonsHttpSolrServer(getServletContext().getInitParameter("solr-url"));
+            ((CommonsHttpSolrServer) solr).setParser(new XMLResponseParser());
             logger.trace("Servlet startup complete.");
         } catch (IOException ex) {
             logger.error("Unable to start ConvertServlet", ex);
