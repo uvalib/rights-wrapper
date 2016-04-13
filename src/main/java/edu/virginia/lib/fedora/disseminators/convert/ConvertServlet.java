@@ -277,7 +277,7 @@ public class ConvertServlet extends HttpServlet {
         while ((line = r.readLine()) != null) {
             s.append(line + "\n");
         }
-        logger.info("Applied policy text from policy object " + policyPid + ".");
+        logger.debug("Applied policy text from policy object " + policyPid + ".");
         return s.toString();
     }
 
