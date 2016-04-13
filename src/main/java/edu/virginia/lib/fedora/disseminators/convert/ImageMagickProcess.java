@@ -48,13 +48,17 @@ public class ImageMagickProcess {
         Pattern pattern = Pattern.compile("^.* JPEG (\\d+)x(\\d+) .*\\n$");
         Process p = new ProcessBuilder(identifyCommandPath, inputJpg.getAbsolutePath()).start();
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        new Thread(new OutputDrainerThread(p.getInputStream(), baos)).start();
+        Thread one = new Thread(new OutputDrainerThread(p.getInputStream(), baos));
+        one.start();
         new Thread(new OutputDrainerThread(p.getErrorStream())).start();
         int returnCode = p.waitFor();
+        one.join();
+        final String identifyOutput = baos.toString("UTF-8");
+        
         if (returnCode != 0) {
             throw new RuntimeException("Invalid return code for process!");
         }
-        Matcher m = pattern.matcher(baos.toString("UTF-8"));
+        Matcher m = pattern.matcher(identifyOutput);
         if (m.matches()) {
             label = label.trim();
             int linesOfText = label.split("\\n").length;
@@ -89,16 +93,20 @@ public class ImageMagickProcess {
                         outputJpg.getAbsolutePath()).start();
             }
             baos = new ByteArrayOutputStream();
-            new Thread(new OutputDrainerThread(p.getInputStream(), baos)).start();
-            new Thread(new OutputDrainerThread(p.getErrorStream(), baos)).start();
+            Thread out = new Thread(new OutputDrainerThread(p.getInputStream(), baos));
+            out.start();
+            Thread err = new Thread(new OutputDrainerThread(p.getErrorStream(), baos));
+            err.start();
             returnCode = p.waitFor();
+            out.join();
+            err.join();
             if (returnCode != 0) {
-                throw new RuntimeException("Invalid return code for process!");
+                throw new RuntimeException("Invalid return code for process! (" + returnCode + ", " + baos.toString("UTF-8") + ")");
             }
         } else {
             File copy = File.createTempFile("problematic-file", ".jpg");
             FileUtils.copyFile(inputJpg, copy);
-            throw new RuntimeException("Unable to parse image dimensions from ImageMagick identify output: \"" + baos.toString("UTF-8") + "\" (problematic file copied to " + copy.getAbsolutePath() + ")");
+            throw new RuntimeException("Unable to parse image dimensions from ImageMagick identify output: \"" + identifyOutput + "\" (problematic file copied to " + copy.getAbsolutePath() + ")");
         }
     }
 }
