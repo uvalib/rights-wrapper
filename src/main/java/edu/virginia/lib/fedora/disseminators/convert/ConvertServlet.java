@@ -1,28 +1,16 @@
 package edu.virginia.lib.fedora.disseminators.convert;
 
 import java.io.BufferedOutputStream;
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.xml.bind.JAXBContext;
-import javax.xml.bind.JAXBException;
-import javax.xml.bind.Unmarshaller;
-import javax.xml.parsers.ParserConfigurationException;
 
 import org.apache.commons.imaging.ImageReadException;
 import org.apache.commons.imaging.ImageWriteException;
@@ -35,18 +23,19 @@ import org.apache.commons.imaging.formats.tiff.constants.ExifTagConstants;
 import org.apache.commons.imaging.formats.tiff.write.TiffOutputDirectory;
 import org.apache.commons.imaging.formats.tiff.write.TiffOutputSet;
 import org.apache.commons.io.IOUtils;
+import org.apache.http.HttpResponse;
+import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.solr.client.solrj.SolrServer;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.CommonsHttpSolrServer;
 import org.apache.solr.client.solrj.impl.XMLResponseParser;
+import org.apache.solr.client.solrj.response.QueryResponse;
 import org.apache.solr.common.params.ModifiableSolrParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.xml.sax.SAXException;
-
-import com.yourmediashelf.fedora.client.FedoraClient;
-import com.yourmediashelf.fedora.client.FedoraClientException;
-import com.yourmediashelf.fedora.client.FedoraCredentials;
 
 /**
  * A servlet that accepts the pid of an image object in fedora and returns the
@@ -54,28 +43,22 @@ import com.yourmediashelf.fedora.client.FedoraCredentials;
  * use information as well as a basic bibliographic citation.
  */
 public class ConvertServlet extends HttpServlet {
-
+    
     final Logger logger = LoggerFactory.getLogger(ConvertServlet.class);
-
-    private Pattern policyPattern;
 
     private ImageMagickProcess convert;
 
-    private FedoraClient fc;
-
+    private String iiifBaseUrl;
+    
+    private CloseableHttpClient client;
+    
     private SolrServer solr;
-
-    private String defaultPolicyPid;
 
     public void init() throws ServletException {
         try {
+            iiifBaseUrl = getServletContext().getInitParameter("iiif-base-url");
             convert = new ImageMagickProcess();
-            fc = new FedoraClient(new FedoraCredentials(getServletContext().getInitParameter("fedora-url"), getServletContext().getInitParameter("fedora-username"), getServletContext().getInitParameter("fedora-password")));
-            policyPattern = Pattern.compile(getServletContext().getInitParameter("policy-pattern"));
-            defaultPolicyPid = getServletContext().getInitParameter("default-policy-pid");
-            if (defaultPolicyPid == null) {
-                logger.warn("No default-policy-pid specified!");
-            }
+            client = HttpClientBuilder.create().build();
             solr = new CommonsHttpSolrServer(getServletContext().getInitParameter("solr-url"));
             ((CommonsHttpSolrServer) solr).setParser(new XMLResponseParser());
             logger.trace("Servlet startup complete.");
@@ -92,11 +75,20 @@ public class ConvertServlet extends HttpServlet {
             resp.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
-
-        String disclaimer = getPolicyDisclaimer(pid);
-        String citation = "";
+        String pagePid = req.getParameter("pagePid");
+        if (pagePid == null) {
+            resp.sendError(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
+        
+        String citation;
         try {
-            citation = wrapLongLines(getCitationInformation(pid), 130, ',');
+            citation = getRightsWrapperText(pid);
+        } catch (SolrServerException e) {
+            citation = "University Of Virginia Library Resource";
+        }
+        try {
+            citation = wrapLongLines(citation, 130, ',');
         } catch (Exception ex) {
             logger.info("Unable to generate citation for " + pid + ", will return an image without a citation.");
         }
@@ -104,7 +96,7 @@ public class ConvertServlet extends HttpServlet {
         if (req.getParameter("justMetadata") != null) {
             resp.setContentType("text/plain");
             resp.setStatus(HttpServletResponse.SC_OK);
-            resp.getOutputStream().write((citation + "\n" + disclaimer).getBytes("UTF-8"));
+            resp.getOutputStream().write((citation).getBytes("UTF-8"));
             resp.getOutputStream().close();
         } else {
             File orig = File.createTempFile(pid + "-orig-", ".jpg");
@@ -113,15 +105,17 @@ public class ConvertServlet extends HttpServlet {
             try {
                 FileOutputStream origOut = new FileOutputStream(orig);
                 try {
-                    IOUtils.copy(FedoraClient.getDissemination(pid, getServletContext().getInitParameter("image-service"), getServletContext().getInitParameter("image-method")).methodParam("rotate", "").methodParam("scale", "0.5").execute(fc).getEntityInputStream(), origOut);
+                    downloadLargeImage(pagePid, origOut);
+                } catch (Throwable t) {
+                    resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                 } finally {
                     origOut.close();
                 }
                 // add the frame
-                convert.addBorder(orig, framed, citation + "\n" + disclaimer);
+                convert.addBorder(orig, framed, citation);
     
                 // add the exif
-                addUserComment(framed, tagged, citation + "\n" + disclaimer);
+                addUserComment(framed, tagged, citation);
     
                 // return the content
                 resp.setContentType("image/jpeg");
@@ -137,6 +131,42 @@ public class ConvertServlet extends HttpServlet {
                 long end = System.currentTimeMillis();
                 logger.info("Serviced request for \"" + pid + "\" (" + size + " bytes) in " + (end - start) + "ms.");
             }
+        }
+    }
+    
+    private static final String DEFAULT_TEXT = "University of Virginia Library - search.lib.virginia.edu\nUnder 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nCopyright and other legal restrictions may apply.  Commercial use without permission is prohibited.";
+    
+    public String getRightsWrapperText(final String pid) throws SolrServerException {
+        final ModifiableSolrParams p = new ModifiableSolrParams();
+        p.set("q", new String[] { "id:\"" + pid + "\"" });
+        p.set("rows", 2);
+
+        QueryResponse response = null;
+        response = solr.query(p);
+        if (response.getResults().size() == 1) {
+            final Object firstWrapperText = response.getResults().get(0).getFirstValue("rights_wrapper_display");
+            if (firstWrapperText == null) {
+                return DEFAULT_TEXT;
+            } else {
+                return firstWrapperText.toString();
+            }
+        } else {
+            return DEFAULT_TEXT;
+        }
+    }
+    
+    private void downloadLargeImage(final String pid, OutputStream out) throws ClientProtocolException, IOException {
+        final String url = this.iiifBaseUrl + pid + "/full/pct:50/0/default.jpg";
+        HttpGet get = new HttpGet(url);
+        try {
+            HttpResponse response = client.execute(get);
+            if (response.getStatusLine().getStatusCode() != 200) {
+                throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
+            } else {
+                IOUtils.copy(response.getEntity().getContent(), out);
+            }
+        } finally {
+            get.releaseConnection();
         }
     }
 
@@ -237,193 +267,4 @@ public class ConvertServlet extends HttpServlet {
         }
     }
     
-    public String getPolicyDisclaimer(String pid) throws IOException, ServletException {
-        try {
-            String policyUrl = FedoraClient.getDatastream(pid, "POLICY").execute(fc).getDatastreamProfile().getDsLocation();
-            Matcher m = policyPattern.matcher(policyUrl);
-            if (m.matches()) {
-                String policyPid = m.group(1);
-                logger.info("Request for " + pid + " is affected by POLICY " + policyPid + ".");
-                return getPolicyWrapperText(policyPid);
-            } else {
-                // unknown policy: fall through with default disclaimer
-                logger.warn("Unknown policy URL: " + policyUrl);
-            }
-        } catch (FedoraClientException ex) {
-            if (ex.getMessage() != null && ex.getMessage().contains("404")) {
-                // no policy text, fetch the default policy text
-                if (defaultPolicyPid != null) {
-                    try {
-                        return getPolicyWrapperText(defaultPolicyPid);
-                    } catch (FedoraClientException ex2) {
-                        logger.error("Unable to fetch default policy from " + defaultPolicyPid + "!", ex2);
-                        // fall through and display the last resort default
-                    }
-                } else {
-                    // fall through and display the last resort default
-                }
-            } else {
-                logger.warn("Error determining policy!", ex);
-                throw new ServletException(ex);
-            }
-        }
-        return "Under 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nCopyright and other legal restrictions may apply.  Commercial use without permission is prohibited.\nUniversity of Virginia Library.";
-    }
-
-    private String getPolicyWrapperText(String policyPid) throws IOException, FedoraClientException {
-        BufferedReader r = new BufferedReader(new InputStreamReader(FedoraClient.getDatastreamDissemination(policyPid, "wrapperText").execute(fc).getEntityInputStream()));
-        StringBuffer s = new StringBuffer();
-        String line = null;
-        while ((line = r.readLine()) != null) {
-            s.append(line + "\n");
-        }
-        logger.debug("Applied policy text from policy object " + policyPid + ".");
-        return s.toString();
-    }
-
-    /**
-     * Queries the repository for a bibliographic citation for an object with
-     * the given pid.  The current implementation determins this citation the
-     * following way:
-     * 
-     * 1.  If the item represents the full record...
-     * 1a.   And it has a MARC record with a citation, that citation is used
-     * @param pid
-     * @return
-     * @throws SAXException
-     * @throws IOException
-     * @throws ParserConfigurationException
-     * @throws FedoraClientException
-     * @throws JAXBException
-     */
-    public String getCitationInformation(String pid) throws SAXException, IOException, ParserConfigurationException, FedoraClientException, JAXBException {
-        // fetch and parse the metadata record
-        DescMetadata m = parseMODSDatastream(pid);
-        if (m == null) {
-            // everything is expected to have a MODS record at the digital 
-            // image level, but if for some reason we can't get it, return
-            // the default citation.
-            return "UVA Library Resource\nhttp://search.lib.virginia.edu/\n";
-        }
-
-        Map<String, List<String>> catalogRecordMap = getParentMetadataRecordAndContentModels(pid);
-        if (catalogRecordMap.size() != 1) {
-            // unable to determine a single item level record, return a
-            // mostly-worthless citation.
-            return "Citation: " + m.buildCitation() + "\n"
-            + "Online Access: http://search.lib.virginia.edu/catalog/" + (m.isFullRecord() ? pid : "") + "\n";
-        } else {
-            String catalogRecordPid = catalogRecordMap.keySet().iterator().next();
-            if (catalogRecordMap.get(catalogRecordPid).contains("uva-lib:eadItemCModel")) {
-                // Hierarchical DL content
-                // 1. parse the uva-lib:hierarchicalMetadataSDef/getSummary response
-                ComponentSummary s = ComponentSummary.parseBreadcrumbs(FedoraClient.getDissemination(catalogRecordPid, "uva-lib:hierarchicalMetadataSDef", "getSummary").execute(fc).getEntityInputStream());
-                // 2. return a citation built from that information
-                return "Citation: " + m.getFirstTitle() + ", " + s.getItemTitle() + ", " + s.getCollectionTitle() + "\n"
-                        + (!isRecordHiddenInSolr(s.getCollectionPid())
-                                ? "Collection Record: http://search.lib.virginia.edu/catalog/" + s.getCollectionPid() + "\n"
-                                : "")
-                        + (!isRecordHiddenInSolr(catalogRecordPid)
-                                ? "Online Access: http://search.lib.virginia.edu/catalog/" + catalogRecordPid + "/view?page=" + pid + "\n"
-                                : "");
-            } else {
-                // Tranditional DL content
-                DescMetadata parentMd = parseMODSDatastream(catalogRecordPid);
-                if (parentMd != null) {
-                    MarcMetadata parentMarc = parseMARCDatastream(catalogRecordPid);
-                    String citation = null;
-                    if (parentMarc != null && parentMarc.getCitation() != null) {
-                        citation = parentMarc.getCitation();
-                    } else {
-                        citation = parentMd.buildCitation();
-                    }
-                    return "Citation: " + citation + "\n"
-                            + (!isRecordHiddenInSolr(catalogRecordPid)
-                                    ? "Catalog Record: http://search.lib.virginia.edu/catalog/" + catalogRecordPid + "\n"
-                                    : "")
-                            + "Online Access: http://search.lib.virginia.edu/catalog/" + (m.isFullRecord() ? pid : catalogRecordPid + "/view?page=" + pid) + "\n"
-                            + "Page Title: " + m.getFirstTitle() + "\n";
-                } else {
-                    return "UVA Library Resource\nhttp://search.lib.virginia.edu/\n";
-                }
-            }
-        }
-    }
-
-    /**
-     * Queries Sole for the record with the given id and a 
-     * "shadowed_location_facet" value not equal to "hidden".  If no records
-     * are returned, this method returns true.  If one record is found this
-     * method will return false.  
-     */
-    private boolean isRecordHiddenInSolr(String id) {
-        ModifiableSolrParams params = new ModifiableSolrParams();
-        params.set("q", "+id:\"" + id + "\" -shadowed_location_facet:HIDDEN");
-        logger.debug("Querying solr for " + params.get("q"));
-        params.set("rows", "0");
-        try {
-            long count = solr.query(params).getResults().getNumFound();
-            return (count == 0);
-        } catch (SolrServerException ex) {
-            logger.error("Error querying solr to see if record " + id + " is shadowed!", ex);
-            return false;
-        }
-    }
-
-    /**
-     * There are several relationship chains that link image objects to the 
-     * metadata records.  This method is meant to contain all of those 
-     * possibilities in a single RISearch query.
-     * @throws FedoraClientException 
-     * @throws IOException 
-     */
-    private Map<String, List<String>> getParentMetadataRecordAndContentModels(String pid) throws FedoraClientException, IOException {
-        String itqlQuery = "select $catalogRecord $model from <#ri>"
-                + " where (<info:fedora/" + pid + "> <http://fedora.lib.virginia.edu/relationships#hasCatalogRecordIn> $catalogRecord"
-                + " or $catalogRecord <http://fedora.lib.virginia.edu/relationships#hasDigitalRepresentation> <info:fedora/" + pid + ">" 
-                + " or <info:fedora/" + pid + "> <http://fedora.lib.virginia.edu/relationships#isDigitalRepresentationOf> $catalogRecord)"
-                + " and $catalogRecord <info:fedora/fedora-system:def/model#hasModel> $model";
-
-        BufferedReader r = new BufferedReader(new InputStreamReader(FedoraClient.riSearch(itqlQuery).lang("itql").format("csv").execute(fc).getEntityInputStream()));
-        String line = r.readLine();
-        Map<String, List<String>> map = new HashMap<String, List<String>>();
-        while ((line = r.readLine()) != null) {
-            String[] cols = line.split(",");
-            String parentPid = cols[0].substring("info:fedora/".length());
-            String parentCmodel = cols[1].substring("info:fedora/".length());
-            List<String> cmodels = map.get(parentPid);
-            if (cmodels == null) {
-                cmodels = new ArrayList<String>();
-                map.put(parentPid, cmodels);
-            }
-            cmodels.add(parentCmodel);
-        }
-        return map;
-       
-    }
-
-    /**
-     * Parses the "descMetadata" datastream from an object as a MODS record.
-     * @return a DescMetadata object or null if unable to read the datastream 
-     * as a MODS record.
-     */ 
-    private DescMetadata parseMODSDatastream(String pid) throws JAXBException, FedoraClientException {
-        JAXBContext jc = JAXBContext.newInstance(DescMetadata.class);
-        Unmarshaller u = jc.createUnmarshaller();
-        try {
-            return (DescMetadata) u.unmarshal(FedoraClient.getDatastreamDissemination(pid, "descMetadata").execute(fc).getEntityInputStream());
-        } catch (FedoraClientException ex) {
-            return null;
-        }
-    }
-
-    private MarcMetadata parseMARCDatastream(String pid) throws JAXBException {
-        JAXBContext jc = JAXBContext.newInstance(MarcMetadata.class);
-        Unmarshaller u = jc.createUnmarshaller();
-        try {
-            return (MarcMetadata) u.unmarshal(FedoraClient.getDatastreamDissemination(pid, "MARC").execute(fc).getEntityInputStream());
-        } catch (FedoraClientException ex) {
-            return null;
-        }
-    }
 }
