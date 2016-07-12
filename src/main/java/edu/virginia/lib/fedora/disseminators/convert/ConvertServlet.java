@@ -33,6 +33,7 @@ import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.CommonsHttpSolrServer;
 import org.apache.solr.client.solrj.impl.XMLResponseParser;
 import org.apache.solr.client.solrj.response.QueryResponse;
+import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.params.ModifiableSolrParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,10 +81,19 @@ public class ConvertServlet extends HttpServlet {
             resp.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
-        
+
         String citation;
         try {
-            citation = getRightsWrapperText(pid);
+            final SolrDocument solrDoc = findSolrDocForId(pid);
+            if (solrDoc == null) {
+                resp.sendError(HttpServletResponse.SC_NOT_FOUND);
+                return;
+            }
+            if (!canAccessResource(solrDoc, req)) {
+                resp.sendError(HttpServletResponse.SC_FORBIDDEN);
+                return;
+            }
+            citation = getRightsWrapperText(solrDoc);
         } catch (SolrServerException e) {
             citation = "University Of Virginia Library Resource";
         }
@@ -136,22 +146,46 @@ public class ConvertServlet extends HttpServlet {
     
     private static final String DEFAULT_TEXT = "University of Virginia Library - search.lib.virginia.edu\nUnder 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nCopyright and other legal restrictions may apply.  Commercial use without permission is prohibited.";
     
-    public String getRightsWrapperText(final String pid) throws SolrServerException {
+    private SolrDocument findSolrDocForId(final String id) throws SolrServerException {
         final ModifiableSolrParams p = new ModifiableSolrParams();
-        p.set("q", new String[] { "id:\"" + pid + "\"" });
+        p.set("q", new String[] { "id:\"" + id + "\"" });
         p.set("rows", 2);
 
         QueryResponse response = null;
         response = solr.query(p);
         if (response.getResults().size() == 1) {
-            final Object firstWrapperText = response.getResults().get(0).getFirstValue("rights_wrapper_display");
-            if (firstWrapperText == null) {
-                return DEFAULT_TEXT;
-            } else {
-                return firstWrapperText.toString();
-            }
+            return response.getResults().get(0);
         } else {
+            return null;
+        }
+    }
+    
+    private String getRightsWrapperText(final SolrDocument doc) {
+        if (doc == null) {
             return DEFAULT_TEXT;
+        }
+        final Object firstWrapperText = doc.getFirstValue("rights_wrapper_display");
+        if (firstWrapperText == null) {
+            return DEFAULT_TEXT;
+        } else {
+            return firstWrapperText.toString();
+        }
+    }
+    
+    private boolean canAccessResource(SolrDocument doc, HttpServletRequest request) {
+        if (doc == null) {
+            return false;
+        } 
+        if (!doc.containsKey("policy_facet")) {
+            return true;
+        }
+        final String policy = doc.getFirstValue("policy_facet").toString();
+        if (policy.equals("uva") || policy.equals("uva-lib:2141110")) {
+            return request.getRemoteHost().toLowerCase().endsWith(".virginia.edu");
+        } else if (policy.equals("public") || policy.equals("uva-lib:2141109")) {
+            return true;
+        } else {
+            return false;
         }
     }
     
