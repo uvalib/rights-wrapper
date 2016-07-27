@@ -53,6 +53,8 @@ public class ConvertServlet extends HttpServlet {
     
     private CloseableHttpClient client;
     
+    private String solrUrl;
+    
     private SolrServer solr;
 
     public void init() throws ServletException {
@@ -60,7 +62,8 @@ public class ConvertServlet extends HttpServlet {
             iiifBaseUrl = getServletContext().getInitParameter("iiif-base-url");
             convert = new ImageMagickProcess();
             client = HttpClientBuilder.create().build();
-            solr = new CommonsHttpSolrServer(getServletContext().getInitParameter("solr-url"));
+            solrUrl = getServletContext().getInitParameter("solr-url");
+            solr = new CommonsHttpSolrServer(solrUrl);
             ((CommonsHttpSolrServer) solr).setParser(new XMLResponseParser());
             logger.trace("Servlet startup complete.");
         } catch (IOException ex) {
@@ -72,12 +75,23 @@ public class ConvertServlet extends HttpServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         long start = System.currentTimeMillis();
         String pid = req.getParameter("pid");
+        if (req.getParameter("about") != null) {
+            resp.setStatus(HttpServletResponse.SC_OK);
+            resp.setContentType("text/plain");
+            IOUtils.write("Rights wrapper service version 2.0\n\n" + iiifBaseUrl + "\n" + solrUrl, resp.getOutputStream());
+            resp.getOutputStream().close();
+            return;
+        }
         if (pid == null) {
-            resp.sendError(HttpServletResponse.SC_BAD_REQUEST);
+            resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            resp.setContentType("text/plain");
+            IOUtils.write("Rights wrapper service version 2.0\nrequired parameters: pid, pagePid\noptional parameters:justMetadata", resp.getOutputStream());
+            resp.getOutputStream().close();
             return;
         }
         String pagePid = req.getParameter("pagePid");
         if (pagePid == null) {
+            logger.debug("Denied request for \"" + pid + "\": pagePid param is missing");
             resp.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
@@ -86,10 +100,17 @@ public class ConvertServlet extends HttpServlet {
         try {
             final SolrDocument solrDoc = findSolrDocForId(pid);
             if (solrDoc == null) {
+                logger.info("Denied request for \"" + pid + "\": 404 solr record not found");
                 resp.sendError(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
+            if (!areParamersValid(solrDoc, pagePid)) {
+                logger.warn("Denied request for \"" + pid + "\": " + pagePid + " is not part of " + pid);
+                resp.sendError(HttpServletResponse.SC_BAD_REQUEST);
+                return;
+            }
             if (!canAccessResource(solrDoc, req)) {
+                logger.debug("Denied request for \"" + pid + "\": unauthorized");
                 resp.sendError(HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
@@ -116,8 +137,16 @@ public class ConvertServlet extends HttpServlet {
                 FileOutputStream origOut = new FileOutputStream(orig);
                 try {
                     downloadLargeImage(pagePid, origOut);
-                } catch (Throwable t) {
-                    resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                } catch (RuntimeException ex) {
+                    if (ex.getMessage() != null && ex.getMessage().startsWith("400")) {
+                        logger.debug("Denied request for \"" + pid + "\": 404 unable to download image");
+                        resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
+                        return;
+                    } else {
+                        logger.debug("Denied request for \"" + pid + "\": " + ex.getMessage());
+                        resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                        return;
+                    }
                 } finally {
                     origOut.close();
                 }
@@ -131,19 +160,34 @@ public class ConvertServlet extends HttpServlet {
                 resp.setContentType("image/jpeg");
                 resp.setStatus(HttpServletResponse.SC_OK);
                 IOUtils.copy(new FileInputStream(tagged), resp.getOutputStream());
-            } catch (Exception ex) {
-                throw new ServletException(ex);
-            } finally {
                 long size = orig.length();
+                long end = System.currentTimeMillis();
+                logger.info("Serviced request for \"" + pid + "\" (" + size + " bytes) in " + (end - start) + "ms.");
+            } catch (Exception ex) {
+                logger.warn("Denied request for \"" + pid + "\": " + ex.getMessage(), ex);
+                resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                return;
+            } finally {
                 orig.delete();
                 framed.delete();
                 tagged.delete();
-                long end = System.currentTimeMillis();
-                logger.info("Serviced request for \"" + pid + "\" (" + size + " bytes) in " + (end - start) + "ms.");
             }
         }
     }
     
+    private boolean areParamersValid(SolrDocument solrDoc, String pagePid) {
+        final String expectedId = "\"@id\":\"" + iiifBaseUrl + pagePid + "\"";
+        final String iiif = (String) solrDoc.getFirstValue("iiif_presentation_metadata_display");
+        if (iiif == null) {
+            logger.warn("iiif_presentation_metadata_display is missing for " + solrDoc.getFirstValue("id") + "!");
+            return false;
+        } else if (iiif.contains(expectedId)) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
     private static final String DEFAULT_TEXT = "University of Virginia Library - search.lib.virginia.edu\nUnder 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nCopyright and other legal restrictions may apply.  Commercial use without permission is prohibited.";
     
     private SolrDocument findSolrDocForId(final String id) throws SolrServerException {
