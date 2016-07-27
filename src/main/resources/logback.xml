@@ -1,6 +1,6 @@
 <configuration debug="true">
   <appender name="FILE" class="ch.qos.logback.core.FileAppender">
-    <file>${catalina.base}/logs/rightswrapper.log</file>
+    <file>${catalina.base}/logs/rightswrapper2.log</file>
     <append>true</append>
     <encoder>
       <pattern>

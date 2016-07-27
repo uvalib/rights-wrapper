@@ -11,3 +11,10 @@ To deploy this servlet:
 3. Invoke "mvn clean package"
 4. Deploy "target/convert.war" in your favorite servlet container
 
+To build this for java six, you must first locally install an old snapshot version of commons-imaging by typing:
+
+```
+mvn install:install-file -Dfile=lib/commons-imaging-1.0-20160119.072927-71.jar -DgroupId=org.apache.commons -DartifactId=commons-imaging -Dversion=1.0-JAVA-6 -Dpackaging=jar
+```
+
+
