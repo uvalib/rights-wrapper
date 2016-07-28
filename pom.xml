@@ -96,7 +96,7 @@
   </repositories>     
   
   <build>
-    <finalName>rightswrapper2</finalName>
+    <finalName>rights-wrapper</finalName>
     <plugins>
       <plugin>
         <groupId>org.eclipse.jetty</groupId>
