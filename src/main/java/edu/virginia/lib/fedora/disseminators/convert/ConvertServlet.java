@@ -44,7 +44,9 @@ import org.slf4j.LoggerFactory;
  * use information as well as a basic bibliographic citation.
  */
 public class ConvertServlet extends HttpServlet {
-    
+
+    private static final String VERSION = "2.1";
+
     final Logger logger = LoggerFactory.getLogger(ConvertServlet.class);
 
     private ImageMagickProcess convert;
@@ -65,33 +67,39 @@ public class ConvertServlet extends HttpServlet {
             solrUrl = getServletContext().getInitParameter("solr-url");
             solr = new CommonsHttpSolrServer(solrUrl);
             ((CommonsHttpSolrServer) solr).setParser(new XMLResponseParser());
-            logger.trace("Servlet startup complete.");
+            logger.trace("Servlet startup complete. (version " + VERSION + ")");
         } catch (IOException ex) {
-            logger.error("Unable to start ConvertServlet", ex);
+            logger.error("Unable to start ConvertServlet (version " + VERSION + ")", ex);
             throw new ServletException(ex);
         }
     }
 
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         long start = System.currentTimeMillis();
+        String referer = req.getHeader("referer");
+        if (referer == null) {
+            referer = "";
+        } else {
+            referer = " (referer: " + referer + ")";
+        }
         String pid = req.getParameter("pid");
         if (req.getParameter("about") != null) {
             resp.setStatus(HttpServletResponse.SC_OK);
             resp.setContentType("text/plain");
-            IOUtils.write("Rights wrapper service version 2.0\n\n" + iiifBaseUrl + "\n" + solrUrl, resp.getOutputStream());
+            IOUtils.write("Rights wrapper service version " + VERSION + "\n\n" + iiifBaseUrl + "\n" + solrUrl, resp.getOutputStream());
             resp.getOutputStream().close();
             return;
         }
         if (pid == null) {
             resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             resp.setContentType("text/plain");
-            IOUtils.write("Rights wrapper service version 2.0\nrequired parameters: pid, pagePid\noptional parameters:justMetadata", resp.getOutputStream());
+            IOUtils.write("Rights wrapper service version " + VERSION + "\nrequired parameters: pid, pagePid\noptional parameters:justMetadata", resp.getOutputStream());
             resp.getOutputStream().close();
             return;
         }
         String pagePid = req.getParameter("pagePid");
         if (pagePid == null) {
-            logger.debug("Denied request for \"" + pid + "\": pagePid param is missing");
+            logger.debug("Denied request for \"" + pid + "\": pagePid param is missing" + referer);
             resp.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
@@ -100,17 +108,17 @@ public class ConvertServlet extends HttpServlet {
         try {
             final SolrDocument solrDoc = findSolrDocForId(pid);
             if (solrDoc == null) {
-                logger.info("Denied request for \"" + pid + "\": 404 solr record not found");
+                logger.info("Denied request for \"" + pid + "\": 404 solr record not found" + referer);
                 resp.sendError(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
             if (!areParamersValid(solrDoc, pagePid)) {
-                logger.warn("Denied request for \"" + pid + "\": " + pagePid + " is not part of " + pid);
+                logger.warn("Denied request for \"" + pid + "\": " + pagePid + " is not part of " + pid + referer);
                 resp.sendError(HttpServletResponse.SC_BAD_REQUEST);
                 return;
             }
             if (!canAccessResource(solrDoc, req)) {
-                logger.debug("Denied request for \"" + pid + "\": unauthorized");
+                logger.debug("Denied request for \"" + pid + "\": unauthorized" + referer);
                 resp.sendError(HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
@@ -139,11 +147,11 @@ public class ConvertServlet extends HttpServlet {
                     downloadLargeImage(pagePid, origOut);
                 } catch (RuntimeException ex) {
                     if (ex.getMessage() != null && ex.getMessage().startsWith("400")) {
-                        logger.debug("Denied request for \"" + pid + "\": 404 unable to download image");
+                        logger.debug("Denied request for \"" + pagePid + "\": 404 unable to download image" + referer);
                         resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
                         return;
                     } else {
-                        logger.debug("Denied request for \"" + pid + "\": " + ex.getMessage());
+                        logger.debug("Denied request for \"" + pagePid + "\": " + ex.getMessage() + referer);
                         resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                         return;
                     }
@@ -162,9 +170,9 @@ public class ConvertServlet extends HttpServlet {
                 IOUtils.copy(new FileInputStream(tagged), resp.getOutputStream());
                 long size = orig.length();
                 long end = System.currentTimeMillis();
-                logger.info("Serviced request for \"" + pid + "\" (" + size + " bytes) in " + (end - start) + "ms.");
+                logger.info("Serviced request for \"" + pagePid + "\" (" + size + " bytes) in " + (end - start) + "ms." + referer);
             } catch (Exception ex) {
-                logger.warn("Denied request for \"" + pid + "\": " + ex.getMessage(), ex);
+                logger.warn("Denied request for \"" + pagePid + "\": " + ex.getMessage() + referer, ex);
                 resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                 return;
             } finally {
@@ -225,7 +233,11 @@ public class ConvertServlet extends HttpServlet {
         }
         final String policy = doc.getFirstValue("policy_facet").toString();
         if (policy.equals("uva") || policy.equals("uva-lib:2141110")) {
-            return request.getRemoteHost().toLowerCase().endsWith(".virginia.edu");
+            boolean allow = request.getRemoteHost().toLowerCase().endsWith(".virginia.edu");
+            if (!allow) {
+                logger.debug("Denying access to \"" + request.getRemoteHost().toLowerCase() + "\" for uva-only content.");
+            }
+            return allow;
         } else if (policy.equals("public") || policy.equals("uva-lib:2141109")) {
             return true;
         } else {
