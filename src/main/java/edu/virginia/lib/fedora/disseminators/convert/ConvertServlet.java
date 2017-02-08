@@ -6,6 +6,8 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.Collection;
+import java.util.List;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -45,7 +47,7 @@ import org.slf4j.LoggerFactory;
  */
 public class ConvertServlet extends HttpServlet {
 
-    private static final String VERSION = "2.1";
+    private static final String VERSION = "2.1.1";
 
     final Logger logger = LoggerFactory.getLogger(ConvertServlet.class);
 
@@ -82,7 +84,15 @@ public class ConvertServlet extends HttpServlet {
         } else {
             referer = " (referer: " + referer + ")";
         }
-        String pid = req.getParameter("pid");
+        final String volumePid = req.getParameter("pid");
+        String pid;
+        try {
+            pid = resolvePid(volumePid);
+        } catch (SolrServerException e) {
+            logger.error("Exception resolving pid!", e);
+            resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return;
+        }
         if (req.getParameter("about") != null) {
             resp.setStatus(HttpServletResponse.SC_OK);
             resp.setContentType("text/plain");
@@ -107,12 +117,13 @@ public class ConvertServlet extends HttpServlet {
         String citation;
         try {
             final SolrDocument solrDoc = findSolrDocForId(pid);
+            final int volumeIndex = computeVolumeInex(solrDoc, volumePid);
             if (solrDoc == null) {
                 logger.info("Denied request for \"" + pid + "\": 404 solr record not found" + referer);
                 resp.sendError(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
-            if (!areParamersValid(solrDoc, pagePid)) {
+            if (!areParamersValid(solrDoc, pagePid, volumeIndex)) {
                 logger.warn("Denied request for \"" + pid + "\": " + pagePid + " is not part of " + pid + referer);
                 resp.sendError(HttpServletResponse.SC_BAD_REQUEST);
                 return;
@@ -122,7 +133,7 @@ public class ConvertServlet extends HttpServlet {
                 resp.sendError(HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
-            citation = getRightsWrapperText(solrDoc);
+            citation = getRightsWrapperText(solrDoc, volumeIndex);
         } catch (SolrServerException e) {
             citation = "University Of Virginia Library Resource";
         }
@@ -182,10 +193,19 @@ public class ConvertServlet extends HttpServlet {
             }
         }
     }
+
+    private int computeVolumeInex(final SolrDocument solrDoc, final String volumePid) {
+        Collection<Object> altIds = solrDoc.getFieldValues("alternate_id_facet");
+        if (altIds == null || altIds.isEmpty()) {
+            return 0;
+        } else {
+            return ((List) altIds).indexOf(volumePid);
+        }
+    }
     
-    private boolean areParamersValid(SolrDocument solrDoc, String pagePid) {
+    private boolean areParamersValid(SolrDocument solrDoc, String pagePid, final int volumeIndex) {
         final String expectedId = "\"@id\":\"" + iiifBaseUrl + pagePid + "\"";
-        final String iiif = (String) solrDoc.getFirstValue("iiif_presentation_metadata_display");
+        final String iiif = (String) ((List) solrDoc.getFieldValues("iiif_presentation_metadata_display")).get(volumeIndex);
         if (iiif == null) {
             logger.warn("iiif_presentation_metadata_display is missing for " + solrDoc.getFirstValue("id") + "!");
             return false;
@@ -211,12 +231,28 @@ public class ConvertServlet extends HttpServlet {
             return null;
         }
     }
+
+    private String resolvePid(final String pid) throws SolrServerException {
+        final ModifiableSolrParams p = new ModifiableSolrParams();
+        p.set("q", new String[] { "alternate_id_facet:\"" + pid + "\"" });
+        p.set("rows", 2);
+
+        QueryResponse response = null;
+        response = solr.query(p);
+        if (response.getResults().size() == 1) {
+            final String resolved = String.valueOf(response.getResults().get(0).getFirstValue("id"));
+            logger.debug("Resolved the alt-id " + pid + " to " + resolved + ".");
+            return resolved;
+        } else {
+            return pid;
+        }
+    }
     
-    private String getRightsWrapperText(final SolrDocument doc) {
+    private String getRightsWrapperText(final SolrDocument doc, final int volumeIndex) {
         if (doc == null) {
             return DEFAULT_TEXT;
         }
-        final Object firstWrapperText = doc.getFirstValue("rights_wrapper_display");
+        final Object firstWrapperText = ((List) doc.getFieldValues("rights_wrapper_display")).get(volumeIndex);
         if (firstWrapperText == null) {
             return DEFAULT_TEXT;
         } else {
