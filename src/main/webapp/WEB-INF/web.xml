@@ -3,7 +3,7 @@
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <context-param>
     <param-name>iiif-base-url</param-name>
-    <param-value>http://iiif.lib.virginia.edu/iiif/</param-value>
+    <param-value>https://iiif.lib.virginia.edu/iiif/</param-value>
   </context-param>
   <context-param>
     <param-name>solr-url</param-name>

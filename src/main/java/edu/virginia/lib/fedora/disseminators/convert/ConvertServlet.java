@@ -47,7 +47,7 @@ import org.slf4j.LoggerFactory;
  */
 public class ConvertServlet extends HttpServlet {
 
-    private static final String VERSION = "2.1.1";
+    private static final String VERSION = "2.1.2";
 
     final Logger logger = LoggerFactory.getLogger(ConvertServlet.class);
 
@@ -84,10 +84,10 @@ public class ConvertServlet extends HttpServlet {
         } else {
             referer = " (referer: " + referer + ")";
         }
-        final String volumePid = req.getParameter("pid");
+        final String providedPid = req.getParameter("pid");
         String pid;
         try {
-            pid = resolvePid(volumePid);
+            pid = resolvePid(providedPid);
         } catch (SolrServerException e) {
             logger.error("Exception resolving pid!", e);
             resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
@@ -117,13 +117,13 @@ public class ConvertServlet extends HttpServlet {
         String citation;
         try {
             final SolrDocument solrDoc = findSolrDocForId(pid);
-            final int volumeIndex = computeVolumeInex(solrDoc, volumePid);
             if (solrDoc == null) {
                 logger.info("Denied request for \"" + pid + "\": 404 solr record not found" + referer);
                 resp.sendError(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
-            if (!areParamersValid(solrDoc, pagePid, volumeIndex)) {
+            final int volumeIndex = computeDigitizedItemPid(solrDoc, providedPid);
+            if (!areParametersValid(solrDoc, pagePid, volumeIndex)) {
                 logger.warn("Denied request for \"" + pid + "\": " + pagePid + " is not part of " + pid + referer);
                 resp.sendError(HttpServletResponse.SC_BAD_REQUEST);
                 return;
@@ -194,18 +194,38 @@ public class ConvertServlet extends HttpServlet {
         }
     }
 
-    private int computeVolumeInex(final SolrDocument solrDoc, final String volumePid) {
+    /**
+     * Sometimes there are multiple digitized items for a single record.  In these cases, for the purpose of
+     * citation building, it's important to identify which one is being displayed.
+     * @param solrDoc the solr doc for the record
+     * @param itemPid the pid for the individual digitized item within the record (or the pid for the record
+     *                in cases where the first item should be selected)
+     * @return the index within the list of digitized items of the item corresponding to the given itemPid
+     */
+    private int computeDigitizedItemPid(final SolrDocument solrDoc, final String itemPid) {
         Collection<Object> altIds = solrDoc.getFieldValues("alternate_id_facet");
         if (altIds == null || altIds.isEmpty()) {
             return 0;
         } else {
-            return ((List) altIds).indexOf(volumePid);
+            final int index = ((List) altIds).indexOf(itemPid);
+            if (index == -1) {
+                // there are cases where alternate_id_facet is used for legacy record names that don't coincide with
+                // individual digital representations
+                return 0;
+            } else {
+                return index;
+            }
         }
     }
     
-    private boolean areParamersValid(SolrDocument solrDoc, String pagePid, final int volumeIndex) {
+    private boolean areParametersValid(SolrDocument solrDoc, String pagePid, final int volumeIndex) {
         final String expectedId = "\"@id\":\"" + iiifBaseUrl + pagePid + "\"";
-        final String iiif = (String) ((List) solrDoc.getFieldValues("iiif_presentation_metadata_display")).get(volumeIndex);
+        final List iiifMetadata = (List) solrDoc.getFieldValues("iiif_presentation_metadata_display");
+        if (volumeIndex >= iiifMetadata.size() || volumeIndex < 0) {
+            logger.warn("Unexpected index requested for iiif_presentation_metadata_display: " + volumeIndex + " of " + iiifMetadata.size());
+            return false;
+        }
+        final String iiif = (String) iiifMetadata.get(volumeIndex);
         if (iiif == null) {
             logger.warn("iiif_presentation_metadata_display is missing for " + solrDoc.getFirstValue("id") + "!");
             return false;
