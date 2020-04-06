@@ -22,14 +22,14 @@ FROM tomcat:8.0
 # install updates and dependancies
 RUN apt-get -y update && apt-get -y install imagemagick
 
+# add the healthcheck
+RUN mkdir /usr/local/tomcat/webapps/healthcheck && echo "OK" > /usr/local/tomcat/webapps/healthcheck/index.html
+
 # port and run command
 EXPOSE 8080
 
 # copy the WAR file
 COPY --from=builder /build/target/rights-wrapper.war /usr/local/tomcat/webapps/
-
-# add the healthcheck
-RUN mkdir /usr/local/tomcat/webapps/healthcheck && echo "OK" > /usr/local/tomcat/webapps/healthcheck/index.html
 
 #
 # end of file
