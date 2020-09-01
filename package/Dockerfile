@@ -17,19 +17,22 @@ RUN mvn install:install-file -Dfile=/build/lib/commons-imaging-1.0-20160119.0729
 RUN mvn clean package
 
 # base image
-FROM tomcat:8.0
+FROM jetty:9.4.9-jre8-alpine
+
+# so we can install new packages
+USER root
 
 # install updates and dependancies
-RUN apt-get -y update && apt-get -y install imagemagick
+RUN apk update && apk add imagemagick
 
-# add the healthcheck
-RUN mkdir /usr/local/tomcat/webapps/healthcheck && echo "OK" > /usr/local/tomcat/webapps/healthcheck/index.html
+# the default user for this base image
+USER jetty
 
 # port and run command
 EXPOSE 8080
 
 # copy the WAR file
-COPY --from=builder /build/target/rights-wrapper.war /usr/local/tomcat/webapps/
+COPY --from=builder /build/target/rights-wrapper.war /var/lib/jetty/webapps/ROOT.war
 
 #
 # end of file
