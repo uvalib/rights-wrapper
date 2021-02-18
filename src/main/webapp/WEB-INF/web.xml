@@ -7,7 +7,11 @@
   </context-param>
   <context-param>
     <param-name>solr-url</param-name>
-    <param-value>http://solr.lib.virginia.edu:8082/solr/core</param-value>
+    <param-value>http://virgo4-solr-production-replica-private.internal.lib.virginia.edu:8080/solr/test_core</param-value>
+  </context-param>
+  <context-param>
+    <param-name>tracksys-base-url</param-name>
+    <param-value>https://tracksys.lib.virginia.edu/api/pid/</param-value>
   </context-param>
   <servlet>
     <servlet-name>iiif-rights-wrapper</servlet-name>
@@ -17,6 +21,6 @@
 
   <servlet-mapping>
     <servlet-name>iiif-rights-wrapper</servlet-name>
-    <url-pattern>/</url-pattern>
+    <url-pattern>/*</url-pattern>
   </servlet-mapping>
 </web-app>

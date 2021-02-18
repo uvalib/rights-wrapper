@@ -5,3 +5,6 @@ target/
 .project
 .settings
 package/scripts
+*.base*
+*.swp
+tmp

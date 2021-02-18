@@ -30,6 +30,7 @@ import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.util.EntityUtils;
 import org.apache.solr.client.solrj.SolrServer;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.CommonsHttpSolrServer;
@@ -39,6 +40,9 @@ import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.params.ModifiableSolrParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
+import org.json.simple.parser.ParseException;
 
 /**
  * A servlet that accepts the pid of an image object in fedora and returns the
@@ -54,12 +58,14 @@ public class ConvertServlet extends HttpServlet {
     private ImageMagickProcess convert;
 
     private String iiifBaseUrl;
-    
+
     private CloseableHttpClient client;
-    
+
     private String solrUrl;
-    
+
     private SolrServer solr;
+
+    private String tracksysBaseUrl;
 
     public void init() throws ServletException {
         try {
@@ -69,6 +75,7 @@ public class ConvertServlet extends HttpServlet {
             solrUrl = getServletContext().getInitParameter("solr-url");
             solr = new CommonsHttpSolrServer(solrUrl);
             ((CommonsHttpSolrServer) solr).setParser(new XMLResponseParser());
+            tracksysBaseUrl = getServletContext().getInitParameter("tracksys-base-url");
             logger.trace("Servlet startup complete. (version " + VERSION + ")");
         } catch (IOException ex) {
             logger.error("Unable to start ConvertServlet (version " + VERSION + ")", ex);
@@ -78,21 +85,39 @@ public class ConvertServlet extends HttpServlet {
 
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         long start = System.currentTimeMillis();
+
         String referer = req.getHeader("referer");
         if (referer == null) {
             referer = "";
         } else {
             referer = " (referer: " + referer + ")";
         }
-        final String providedPid = req.getParameter("pid");
-        String pid;
+
+        // parse page pid from end of path
+        String pathInfo = req.getPathInfo();
+        String[] pathParts = pathInfo.split("/");
+        final String pagePid = pathParts[pathParts.length-1];
+
+        // convert page pid to metadata pid
+        String metadataPid;
         try {
-            pid = resolvePid(providedPid);
-        } catch (SolrServerException e) {
-            logger.error("Exception resolving pid!", e);
+            metadataPid = resolveMetadataPid(pagePid);
+        } catch (Exception e) {
+            logger.error("Exception resolving page pid!", e);
             resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return;
         }
+
+        // convert metadata pid to solr id
+        String id;
+        try {
+            id = resolveSolrId(metadataPid);
+        } catch (SolrServerException e) {
+            logger.error("Exception resolving metadata pid!", e);
+            resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return;
+        }
+
         if (req.getParameter("about") != null) {
             resp.setStatus(HttpServletResponse.SC_OK);
             resp.setContentType("text/plain");
@@ -100,39 +125,29 @@ public class ConvertServlet extends HttpServlet {
             resp.getOutputStream().close();
             return;
         }
-        if (pid == null) {
+
+        if (id == null) {
             resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             resp.setContentType("text/plain");
-            IOUtils.write("Rights wrapper service version " + VERSION + "\nrequired parameters: pid, pagePid\noptional parameters:justMetadata", resp.getOutputStream());
+            IOUtils.write("Rights wrapper service version " + VERSION + "\nrequired parameters: pagePid (at end of url path)\noptional parameters: about, justMetadata", resp.getOutputStream());
             resp.getOutputStream().close();
-            return;
-        }
-        String pagePid = req.getParameter("pagePid");
-        if (pagePid == null) {
-            logger.debug("Denied request for \"" + pid + "\": pagePid param is missing" + referer);
-            resp.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
 
         String citation;
         try {
-            final SolrDocument solrDoc = findSolrDocForId(pid);
+            final SolrDocument solrDoc = findSolrDocForId(id);
             if (solrDoc == null) {
-                logger.info("Denied request for \"" + pid + "\": 404 solr record not found" + referer);
+                logger.info("Denied request for \"" + id + "\": 404 solr record not found" + referer);
                 resp.sendError(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
-            final int volumeIndex = computeDigitizedItemPid(solrDoc, providedPid);
-            if (!areParametersValid(solrDoc, pagePid, volumeIndex)) {
-                logger.warn("Denied request for \"" + pid + "\": " + pagePid + " is not part of " + pid + referer);
-                resp.sendError(HttpServletResponse.SC_BAD_REQUEST);
-                return;
-            }
             if (!canAccessResource(solrDoc, req)) {
-                logger.debug("Denied request for \"" + pid + "\": unauthorized" + referer);
+                logger.debug("Denied request for \"" + id + "\": unauthorized" + referer);
                 resp.sendError(HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
+            final int volumeIndex = computeDigitizedItemPid(solrDoc, pagePid);
             citation = getRightsWrapperText(solrDoc, volumeIndex);
         } catch (SolrServerException e) {
             citation = "University Of Virginia Library Resource";
@@ -140,7 +155,7 @@ public class ConvertServlet extends HttpServlet {
         try {
             citation = wrapLongLines(citation, 130, ',');
         } catch (Exception ex) {
-            logger.info("Unable to generate citation for " + pid + ", will return an image without a citation.");
+            logger.info("Unable to generate citation for " + id + ", will return an image without a citation.");
         }
 
         if (req.getParameter("justMetadata") != null) {
@@ -149,9 +164,9 @@ public class ConvertServlet extends HttpServlet {
             resp.getOutputStream().write((citation).getBytes("UTF-8"));
             resp.getOutputStream().close();
         } else {
-            File orig = File.createTempFile(pid + "-orig-", ".jpg");
-            File framed = File.createTempFile(pid + "-wrapped-", ".jpg");
-            File tagged = File.createTempFile(pid + "-wrapped-tagged-", ".jpg");
+            File orig = File.createTempFile(id + "-orig-", ".jpg");
+            File framed = File.createTempFile(id + "-wrapped-", ".jpg");
+            File tagged = File.createTempFile(id + "-wrapped-tagged-", ".jpg");
             try {
                 FileOutputStream origOut = new FileOutputStream(orig);
                 try {
@@ -171,10 +186,10 @@ public class ConvertServlet extends HttpServlet {
                 }
                 // add the frame
                 convert.addBorder(orig, framed, citation);
-    
+
                 // add the exif
                 addUserComment(framed, tagged, citation);
-    
+
                 // return the content
                 resp.setContentType("image/jpeg");
                 resp.setStatus(HttpServletResponse.SC_OK);
@@ -203,13 +218,13 @@ public class ConvertServlet extends HttpServlet {
      * @return the index within the list of digitized items of the item corresponding to the given itemPid
      */
     private int computeDigitizedItemPid(final SolrDocument solrDoc, final String itemPid) {
-        Collection<Object> altIds = solrDoc.getFieldValues("alternate_id_facet");
+        Collection<Object> altIds = solrDoc.getFieldValues("alternate_id_a");
         if (altIds == null || altIds.isEmpty()) {
             return 0;
         } else {
             final int index = ((List) altIds).indexOf(itemPid);
             if (index == -1) {
-                // there are cases where alternate_id_facet is used for legacy record names that don't coincide with
+                // there are cases where alternate_id_a is used for legacy record names that don't coincide with
                 // individual digital representations
                 return 0;
             } else {
@@ -217,27 +232,9 @@ public class ConvertServlet extends HttpServlet {
             }
         }
     }
-    
-    private boolean areParametersValid(SolrDocument solrDoc, String pagePid, final int volumeIndex) {
-        final String expectedId = "\"@id\":\"" + iiifBaseUrl + pagePid + "\"";
-        final List iiifMetadata = (List) solrDoc.getFieldValues("iiif_presentation_metadata_display");
-        if (volumeIndex >= iiifMetadata.size() || volumeIndex < 0) {
-            logger.warn("Unexpected index requested for iiif_presentation_metadata_display: " + volumeIndex + " of " + iiifMetadata.size());
-            return false;
-        }
-        final String iiif = (String) iiifMetadata.get(volumeIndex);
-        if (iiif == null) {
-            logger.warn("iiif_presentation_metadata_display is missing for " + solrDoc.getFirstValue("id") + "!");
-            return false;
-        } else if (iiif.contains(expectedId)) {
-            return true;
-        } else {
-            return false;
-        }
-    }
 
     private static final String DEFAULT_TEXT = "University of Virginia Library - search.lib.virginia.edu\nUnder 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nCopyright and other legal restrictions may apply.  Commercial use without permission is prohibited.";
-    
+
     private SolrDocument findSolrDocForId(final String id) throws SolrServerException {
         final ModifiableSolrParams p = new ModifiableSolrParams();
         p.set("q", new String[] { "id:\"" + id + "\"" });
@@ -252,38 +249,61 @@ public class ConvertServlet extends HttpServlet {
         }
     }
 
-    private String resolvePid(final String pid) throws SolrServerException {
+    private String resolveMetadataPid(final String pagePid) throws ClientProtocolException, IOException, ParseException {
+        final String url = this.tracksysBaseUrl + pagePid;
+        HttpGet get = new HttpGet(url);
+        try {
+            HttpResponse response = client.execute(get);
+            if (response.getStatusLine().getStatusCode() != 200) {
+                throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
+            } else {
+                String apiResponse = EntityUtils.toString(response.getEntity());
+
+                JSONParser jsonParser = new JSONParser();
+                Object parseResult = jsonParser.parse(apiResponse);
+                JSONObject jsonResponse = (JSONObject) parseResult;
+                Object parentMetadataPid = jsonResponse.get("parent_metadata_pid");
+                String metadataPid = parentMetadataPid.toString();
+                logger.debug("Resolved the page pid " + pagePid + " to " + metadataPid + ".");
+                return metadataPid;
+            }
+        } finally {
+            get.releaseConnection();
+        }
+    }
+
+    private String resolveSolrId(final String metadataPid) throws SolrServerException {
         final ModifiableSolrParams p = new ModifiableSolrParams();
-        p.set("q", new String[] { "alternate_id_facet:\"" + pid + "\"" });
+        p.set("q", new String[] { "alternate_id_a:\"" + metadataPid + "\"" });
         p.set("rows", 2);
 
         QueryResponse response = null;
         response = solr.query(p);
         if (response.getResults().size() == 1) {
             final String resolved = String.valueOf(response.getResults().get(0).getFirstValue("id"));
-            logger.debug("Resolved the alt-id " + pid + " to " + resolved + ".");
+            logger.debug("Resolved the alt-id " + metadataPid + " to " + resolved + ".");
             return resolved;
         } else {
-            return pid;
+            return metadataPid;
         }
     }
-    
+
     private String getRightsWrapperText(final SolrDocument doc, final int volumeIndex) {
         if (doc == null) {
             return DEFAULT_TEXT;
         }
-        final Object firstWrapperText = ((List) doc.getFieldValues("rights_wrapper_display")).get(volumeIndex);
+        final Object firstWrapperText = ((List) doc.getFieldValues("rights_wrapper_a")).get(volumeIndex);
         if (firstWrapperText == null) {
             return DEFAULT_TEXT;
         } else {
             return firstWrapperText.toString();
         }
     }
-    
+
     private boolean canAccessResource(SolrDocument doc, HttpServletRequest request) {
         if (doc == null) {
             return false;
-        } 
+        }
         if (!doc.containsKey("policy_facet")) {
             return true;
         }
@@ -300,7 +320,7 @@ public class ConvertServlet extends HttpServlet {
             return false;
         }
     }
-    
+
     private void downloadLargeImage(final String pid, OutputStream out) throws ClientProtocolException, IOException {
         final String url = this.iiifBaseUrl + pid + "/full/pct:50/0/default.jpg";
         HttpGet get = new HttpGet(url);
@@ -398,7 +418,7 @@ public class ConvertServlet extends HttpServlet {
             // org.apache.commons.sanselan.formats.tiff.constants.AllTagConstants
             //
             final TiffOutputDirectory exifDirectory = outputSet.getOrCreateExifDirectory();
- 
+
             // make sure to remove old value if present (this method will
             // not fail if the tag does not exist).
             exifDirectory.removeField(ExifTagConstants.EXIF_TAG_USER_COMMENT);
@@ -412,5 +432,5 @@ public class ConvertServlet extends HttpServlet {
             }
         }
     }
-    
+
 }
