@@ -147,7 +147,7 @@ public class ConvertServlet extends HttpServlet {
                 resp.sendError(HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
-            final int volumeIndex = computeDigitizedItemPid(solrDoc, pagePid);
+            final int volumeIndex = computeDigitizedItemPid(solrDoc, metadataPid);
             citation = getRightsWrapperText(solrDoc, volumeIndex);
         } catch (SolrServerException e) {
             citation = "University Of Virginia Library Resource";
