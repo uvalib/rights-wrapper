@@ -304,10 +304,10 @@ public class ConvertServlet extends HttpServlet {
         if (doc == null) {
             return false;
         }
-        if (!doc.containsKey("policy_facet")) {
+        if (!doc.containsKey("policy_a")) {
             return true;
         }
-        final String policy = doc.getFirstValue("policy_facet").toString();
+        final String policy = doc.getFirstValue("policy_a").toString();
         if (policy.equals("uva") || policy.equals("uva-lib:2141110")) {
             boolean allow = request.getRemoteHost().toLowerCase().endsWith(".virginia.edu");
             if (!allow) {
