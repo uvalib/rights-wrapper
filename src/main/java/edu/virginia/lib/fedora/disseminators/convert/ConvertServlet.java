@@ -67,6 +67,8 @@ public class ConvertServlet extends HttpServlet {
 
     private String tracksysBaseUrl;
 
+    private String virgoBaseUrl;
+
     public void init() throws ServletException {
         try {
             iiifBaseUrl = getServletContext().getInitParameter("iiif-base-url");
@@ -76,6 +78,7 @@ public class ConvertServlet extends HttpServlet {
             solr = new CommonsHttpSolrServer(solrUrl);
             ((CommonsHttpSolrServer) solr).setParser(new XMLResponseParser());
             tracksysBaseUrl = getServletContext().getInitParameter("tracksys-base-url");
+            virgoBaseUrl = getServletContext().getInitParameter("virgo-base-url");
             logger.trace("Servlet startup complete. (version " + VERSION + ")");
         } catch (IOException ex) {
             logger.error("Unable to start ConvertServlet (version " + VERSION + ")", ex);
@@ -154,6 +157,19 @@ public class ConvertServlet extends HttpServlet {
 
         // build full citation from MLA citation plus rights info
 
+        // citation:
+        // TODO: get from citations-ws
+        String citation = "";
+
+        // fallback:
+		if (tsMetaInfo.title != "" ) {
+	        citation += tsMetaInfo.title.replaceAll("\\.$","") + ".  ";
+		}
+		if (tsMetaInfo.callNumber != "" ) {
+	        citation += tsMetaInfo.callNumber + ".  ";
+		}
+        citation += "University of Virginia Library, Charlottesville, VA.";
+
         // rights:
         String rights;
 
@@ -164,18 +180,11 @@ public class ConvertServlet extends HttpServlet {
             rights = tsMetaInfo.rightsStatement;
         }
 
-        // citation:
-        // TODO: get from citations-ws
-        String citation = "";
-
-        // fallback:
-        citation += tsMetaInfo.title.trim() + ".  ";
-        citation += tsMetaInfo.callNumber + ".  ";
-        citation += "University of Virginia Library, Charlottesville, VA.";
+		String fullCitation = citation + "\n" + virgoBaseUrl + tsMetaInfo.catalogKey + "\n\n" + rights;
 
         // format the citation
         try {
-            citation = wrapLongLines(citation, 130, ',');
+            fullCitation = wrapLongLines(fullCitation, 130, ',', ' ');
         } catch (Exception ex) {
             logger.info("Unable to generate citation for " + tsMetaInfo.catalogKey + ", will return an image without a citation.");
         }
@@ -184,7 +193,7 @@ public class ConvertServlet extends HttpServlet {
         if (req.getParameter("justMetadata") != null) {
             resp.setContentType("text/plain");
             resp.setStatus(HttpServletResponse.SC_OK);
-            resp.getOutputStream().write((citation).getBytes("UTF-8"));
+            resp.getOutputStream().write((fullCitation).getBytes("UTF-8"));
             resp.getOutputStream().close();
         } else {
             File orig = File.createTempFile(tsMetaInfo.catalogKey + "-orig-", ".jpg");
@@ -208,10 +217,10 @@ public class ConvertServlet extends HttpServlet {
                     origOut.close();
                 }
                 // add the frame
-                convert.addBorder(orig, framed, citation);
+                convert.addBorder(orig, framed, fullCitation);
 
                 // add the exif
-                addUserComment(framed, tagged, citation);
+                addUserComment(framed, tagged, fullCitation);
 
                 // return the content
                 resp.setContentType("image/jpeg");
@@ -435,13 +444,13 @@ public class ConvertServlet extends HttpServlet {
      * breaks added after the closest breakpoint before the string length 
      * exceeds the maxLength.  Whitespace is trimmed from each new line.
      */
-    static String wrapLongLines(String text, int maxLength, char breakpoint) {
+    static String wrapLongLines(String text, int maxLength, char breakpoint1, char breakpoint2) {
         StringBuffer wrapped = new StringBuffer();
         for (String s : text.split("\n")) {
             while (s.length() > maxLength) {
                 boolean found = false;
                 for (int i = maxLength - 1; i > 0; i --) {
-                    if (s.charAt(i) == breakpoint) {
+                    if (s.charAt(i) == breakpoint1) {
                         wrapped.append(s.substring(0, i+1).trim());
                         wrapped.append("\n");
                         s = s.substring(i+1);
@@ -449,6 +458,17 @@ public class ConvertServlet extends HttpServlet {
                         break;
                     }
                 }
+				if (!found) {
+                    for (int i = maxLength - 1; i > 0; i --) {
+                        if (s.charAt(i) == breakpoint2) {
+                            wrapped.append(s.substring(0, i+1).trim());
+                            wrapped.append("\n");
+                            s = s.substring(i+1);
+                            found = true;
+                            break;
+                        }
+                    }
+				}
                 if (!found) {
                     // no good breakpoint found, break it at the maxLength
                     wrapped.append(s.substring(0, maxLength).trim());
