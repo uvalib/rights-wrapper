@@ -390,7 +390,7 @@ public class ConvertServlet extends HttpServlet {
         String queryParams = "";
         queryParams += "?item=" + URLEncoder.encode(catalogPoolBaseUrl + id, StandardCharsets.UTF_8);
         queryParams += "&inline=1";
-        queryParams += "&text=1";
+        queryParams += "&nohtml=1";
 
         final String url = citationsBaseUrl + queryParams;
 
