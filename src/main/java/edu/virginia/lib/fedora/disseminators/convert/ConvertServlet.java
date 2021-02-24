@@ -99,20 +99,20 @@ public class ConvertServlet extends HttpServlet {
         final String pagePid = pathParts[pathParts.length-1];
 
         // convert page pid to metadata pid
-        String metadataPid;
+        TracksysPidInfo tsPidInfo;
         try {
-            metadataPid = resolveMetadataPid(pagePid);
+            tsPidInfo = new TracksysPidInfo(this.tracksysBaseUrl, pagePid);
         } catch (Exception e) {
             logger.error("Exception resolving page pid!", e);
             resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return;
         }
 
-        // convert metadata pid to solr id
-        String id;
+        // convert metadata pid to solr id and get rights statement
+        TracksysMetadataInfo tsMetaInfo;
         try {
-            id = resolveSolrId(metadataPid);
-        } catch (SolrServerException e) {
+            tsMetaInfo = new TracksysMetadataInfo(this.tracksysBaseUrl, tsPidInfo.parentMetadataPid);
+        } catch (Exception e) {
             logger.error("Exception resolving metadata pid!", e);
             resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return;
@@ -126,7 +126,7 @@ public class ConvertServlet extends HttpServlet {
             return;
         }
 
-        if (id == null) {
+        if (tsMetaInfo.catalogKey == "") {
             resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             resp.setContentType("text/plain");
             IOUtils.write("Rights wrapper service version " + VERSION + "\nrequired parameters: pagePid (at end of url path)\noptional parameters: about, justMetadata", resp.getOutputStream());
@@ -134,39 +134,62 @@ public class ConvertServlet extends HttpServlet {
             return;
         }
 
-        String citation;
+        // check Solr for access policy
         try {
-            final SolrDocument solrDoc = findSolrDocForId(id);
+            final SolrDocument solrDoc = findSolrDocForId(tsMetaInfo.catalogKey);
             if (solrDoc == null) {
-                logger.info("Denied request for \"" + id + "\": 404 solr record not found" + referer);
+                logger.info("Denied request for \"" + tsMetaInfo.catalogKey + "\": 404 solr record not found" + referer);
                 resp.sendError(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
             if (!canAccessResource(solrDoc, req)) {
-                logger.debug("Denied request for \"" + id + "\": unauthorized" + referer);
+                logger.debug("Denied request for \"" + tsMetaInfo.catalogKey + "\": unauthorized: " + referer);
                 resp.sendError(HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
-            final int volumeIndex = computeDigitizedItemPid(solrDoc, metadataPid);
-            citation = getRightsWrapperText(solrDoc, volumeIndex);
         } catch (SolrServerException e) {
-            citation = "University Of Virginia Library Resource";
+            // let request through
+            // TODO: maybe check rights-ws as a fallback?
         }
+
+        // build full citation from MLA citation plus rights info
+
+        // rights:
+        String rights;
+
+        // fallback:
+        rights = "University of Virginia Library - search.lib.virginia.edu\nUnder 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nCopyright and other legal restrictions may apply.  Commercial use without permission is prohibited.";
+
+        if (tsMetaInfo.rightsStatement != "") {
+            rights = tsMetaInfo.rightsStatement;
+        }
+
+        // citation:
+        // TODO: get from citations-ws
+        String citation = "";
+
+        // fallback:
+        citation += tsMetaInfo.title.trim() + ".  ";
+        citation += tsMetaInfo.callNumber + ".  ";
+        citation += "University of Virginia Library, Charlottesville, VA.";
+
+        // format the citation
         try {
             citation = wrapLongLines(citation, 130, ',');
         } catch (Exception ex) {
-            logger.info("Unable to generate citation for " + id + ", will return an image without a citation.");
+            logger.info("Unable to generate citation for " + tsMetaInfo.catalogKey + ", will return an image without a citation.");
         }
 
+        // return result (either metadata or framed image)
         if (req.getParameter("justMetadata") != null) {
             resp.setContentType("text/plain");
             resp.setStatus(HttpServletResponse.SC_OK);
             resp.getOutputStream().write((citation).getBytes("UTF-8"));
             resp.getOutputStream().close();
         } else {
-            File orig = File.createTempFile(id + "-orig-", ".jpg");
-            File framed = File.createTempFile(id + "-wrapped-", ".jpg");
-            File tagged = File.createTempFile(id + "-wrapped-tagged-", ".jpg");
+            File orig = File.createTempFile(tsMetaInfo.catalogKey + "-orig-", ".jpg");
+            File framed = File.createTempFile(tsMetaInfo.catalogKey + "-wrapped-", ".jpg");
+            File tagged = File.createTempFile(tsMetaInfo.catalogKey + "-wrapped-tagged-", ".jpg");
             try {
                 FileOutputStream origOut = new FileOutputStream(orig);
                 try {
@@ -217,6 +240,7 @@ public class ConvertServlet extends HttpServlet {
      *                in cases where the first item should be selected)
      * @return the index within the list of digitized items of the item corresponding to the given itemPid
      */
+/*
     private int computeDigitizedItemPid(final SolrDocument solrDoc, final String itemPid) {
         Collection<Object> altIds = solrDoc.getFieldValues("alternate_id_a");
         if (altIds == null || altIds.isEmpty()) {
@@ -232,8 +256,7 @@ public class ConvertServlet extends HttpServlet {
             }
         }
     }
-
-    private static final String DEFAULT_TEXT = "University of Virginia Library - search.lib.virginia.edu\nUnder 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nCopyright and other legal restrictions may apply.  Commercial use without permission is prohibited.";
+*/
 
     private SolrDocument findSolrDocForId(final String id) throws SolrServerException {
         final ModifiableSolrParams p = new ModifiableSolrParams();
@@ -249,29 +272,96 @@ public class ConvertServlet extends HttpServlet {
         }
     }
 
-    private String resolveMetadataPid(final String pagePid) throws ClientProtocolException, IOException, ParseException {
-        final String url = this.tracksysBaseUrl + pagePid;
-        HttpGet get = new HttpGet(url);
-        try {
-            HttpResponse response = client.execute(get);
-            if (response.getStatusLine().getStatusCode() != 200) {
-                throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
-            } else {
-                String apiResponse = EntityUtils.toString(response.getEntity());
+    class TracksysPidInfo {
+        String parentMetadataPid;
+        String type;
+        String title;
 
-                JSONParser jsonParser = new JSONParser();
-                Object parseResult = jsonParser.parse(apiResponse);
-                JSONObject jsonResponse = (JSONObject) parseResult;
-                Object parentMetadataPid = jsonResponse.get("parent_metadata_pid");
-                String metadataPid = parentMetadataPid.toString();
-                logger.debug("Resolved the page pid " + pagePid + " to " + metadataPid + ".");
-                return metadataPid;
+        TracksysPidInfo(final String tracksysBaseUrl, final String pagePid) throws ClientProtocolException, IOException, ParseException {
+            final String url = tracksysBaseUrl + "pid/" + pagePid;
+
+            HttpGet get = new HttpGet(url);
+            try {
+                HttpResponse response = client.execute(get);
+                if (response.getStatusLine().getStatusCode() != 200) {
+                    throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
+                } else {
+                    String apiResponse = EntityUtils.toString(response.getEntity());
+
+                    JSONParser jsonParser = new JSONParser();
+                    Object parseResult = jsonParser.parse(apiResponse);
+                    JSONObject jsonResponse = (JSONObject) parseResult;
+                    Object jsonValue;
+
+                    jsonValue = jsonResponse.get("parent_metadata_pid");
+                    this.parentMetadataPid = jsonValue.toString();
+
+                    jsonValue = jsonResponse.get("type");
+                    this.type = jsonValue.toString();
+
+                    jsonValue = jsonResponse.get("title");
+                    this.title = jsonValue.toString();
+
+                    logger.debug("Resolved the page pid " + pagePid + " to " + parentMetadataPid + ".");
+
+                    logger.debug("TracksysPidInfo: parentMetadataPid = [" + parentMetadataPid + "]");
+                    logger.debug("TracksysPidInfo: type              = [" + type + "]");
+                    logger.debug("TracksysPidInfo: title             = [" + parentMetadataPid + "]");
+                }
+            } finally {
+                get.releaseConnection();
             }
-        } finally {
-            get.releaseConnection();
         }
     }
 
+    class TracksysMetadataInfo {
+        String catalogKey;
+        String callNumber;
+        String title;
+        String rightsStatement;
+
+        TracksysMetadataInfo(final String tracksysBaseUrl, final String metadataPid) throws ClientProtocolException, IOException, ParseException {
+            final String url = tracksysBaseUrl + "metadata/" + metadataPid + "?type=brief";
+
+            HttpGet get = new HttpGet(url);
+            try {
+                HttpResponse response = client.execute(get);
+                if (response.getStatusLine().getStatusCode() != 200) {
+                    throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
+                } else {
+                    String apiResponse = EntityUtils.toString(response.getEntity());
+
+                    JSONParser jsonParser = new JSONParser();
+                    Object parseResult = jsonParser.parse(apiResponse);
+                    JSONObject jsonResponse = (JSONObject) parseResult;
+                    Object jsonValue;
+
+                    jsonValue = jsonResponse.get("catalogKey");
+                    this.catalogKey = jsonValue.toString();
+
+                    jsonValue = jsonResponse.get("callNumber");
+                    this.callNumber = jsonValue.toString();
+
+                    jsonValue = jsonResponse.get("title");
+                    this.title = jsonValue.toString();
+
+                    jsonValue = jsonResponse.get("rightsStatement");
+                    this.rightsStatement = jsonValue.toString();
+
+                    logger.debug("Resolved the metadata pid " + metadataPid + " to " + catalogKey + ".");
+
+                    logger.debug("TracksysMetadataInfo: catalogKey        = [" + catalogKey + "]");
+                    logger.debug("TracksysMetadataInfo: callNumber        = [" + callNumber + "]");
+                    logger.debug("TracksysMetadataInfo: title             = [" + title + "]");
+                    logger.debug("TracksysMetadataInfo: rightsStatement   = [" + rightsStatement + "]");
+                }
+            } finally {
+                get.releaseConnection();
+            }
+        }
+    }
+
+/*
     private String resolveSolrId(final String metadataPid) throws SolrServerException {
         final ModifiableSolrParams p = new ModifiableSolrParams();
         p.set("q", new String[] { "alternate_id_a:\"" + metadataPid + "\"" });
@@ -287,7 +377,9 @@ public class ConvertServlet extends HttpServlet {
             return metadataPid;
         }
     }
+*/
 
+/*
     private String getRightsWrapperText(final SolrDocument doc, final int volumeIndex) {
         if (doc == null) {
             return DEFAULT_TEXT;
@@ -299,6 +391,7 @@ public class ConvertServlet extends HttpServlet {
             return firstWrapperText.toString();
         }
     }
+*/
 
     private boolean canAccessResource(SolrDocument doc, HttpServletRequest request) {
         if (doc == null) {

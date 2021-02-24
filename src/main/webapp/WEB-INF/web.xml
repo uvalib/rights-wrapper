@@ -11,7 +11,7 @@
   </context-param>
   <context-param>
     <param-name>tracksys-base-url</param-name>
-    <param-value>https://tracksys.lib.virginia.edu/api/pid/</param-value>
+    <param-value>https://tracksys.lib.virginia.edu/api/</param-value>
   </context-param>
   <servlet>
     <servlet-name>iiif-rights-wrapper</servlet-name>
