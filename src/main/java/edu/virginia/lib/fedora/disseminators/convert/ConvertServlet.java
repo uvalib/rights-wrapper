@@ -257,32 +257,6 @@ public class ConvertServlet extends HttpServlet {
         }
     }
 
-    /**
-     * Sometimes there are multiple digitized items for a single record.  In these cases, for the purpose of
-     * citation building, it's important to identify which one is being displayed.
-     * @param solrDoc the solr doc for the record
-     * @param itemPid the pid for the individual digitized item within the record (or the pid for the record
-     *                in cases where the first item should be selected)
-     * @return the index within the list of digitized items of the item corresponding to the given itemPid
-     */
-/*
-    private int computeDigitizedItemPid(final SolrDocument solrDoc, final String itemPid) {
-        Collection<Object> altIds = solrDoc.getFieldValues("alternate_id_a");
-        if (altIds == null || altIds.isEmpty()) {
-            return 0;
-        } else {
-            final int index = ((List) altIds).indexOf(itemPid);
-            if (index == -1) {
-                // there are cases where alternate_id_a is used for legacy record names that don't coincide with
-                // individual digital representations
-                return 0;
-            } else {
-                return index;
-            }
-        }
-    }
-*/
-
     private SolrDocument findSolrDocForId(final String id) throws SolrServerException {
         final ModifiableSolrParams p = new ModifiableSolrParams();
         p.set("q", new String[] { "id:\"" + id + "\"" });
@@ -329,9 +303,9 @@ public class ConvertServlet extends HttpServlet {
 
                     logger.debug("Resolved the page pid " + pagePid + " to " + parentMetadataPid + ".");
 
-                    logger.debug("TracksysPidInfo: parentMetadataPid = [" + parentMetadataPid + "]");
-                    logger.debug("TracksysPidInfo: type              = [" + type + "]");
-                    logger.debug("TracksysPidInfo: title             = [" + parentMetadataPid + "]");
+                    //logger.debug("TracksysPidInfo: parentMetadataPid = [" + parentMetadataPid + "]");
+                    //logger.debug("TracksysPidInfo: type              = [" + type + "]");
+                    //logger.debug("TracksysPidInfo: title             = [" + parentMetadataPid + "]");
                 }
             } finally {
                 get.releaseConnection();
@@ -375,10 +349,10 @@ public class ConvertServlet extends HttpServlet {
 
                     logger.debug("Resolved the metadata pid " + metadataPid + " to " + catalogKey + ".");
 
-                    logger.debug("TracksysMetadataInfo: catalogKey        = [" + catalogKey + "]");
-                    logger.debug("TracksysMetadataInfo: callNumber        = [" + callNumber + "]");
-                    logger.debug("TracksysMetadataInfo: title             = [" + title + "]");
-                    logger.debug("TracksysMetadataInfo: rightsStatement   = [" + rightsStatement + "]");
+                    //logger.debug("TracksysMetadataInfo: catalogKey      = [" + catalogKey + "]");
+                    //logger.debug("TracksysMetadataInfo: callNumber      = [" + callNumber + "]");
+                    //logger.debug("TracksysMetadataInfo: title           = [" + title + "]");
+                    //logger.debug("TracksysMetadataInfo: rightsStatement = [" + rightsStatement + "]");
                 }
             } finally {
                 get.releaseConnection();
@@ -401,45 +375,13 @@ public class ConvertServlet extends HttpServlet {
                 throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
             } else {
                 String citation = EntityUtils.toString(response.getEntity());
-                logger.debug("got citation: [" + citation + "]");
+                //logger.debug("got citation: [" + citation + "]");
                 return citation;
             }
         } finally {
             get.releaseConnection();
         }
     }
-
-/*
-    private String resolveSolrId(final String metadataPid) throws SolrServerException {
-        final ModifiableSolrParams p = new ModifiableSolrParams();
-        p.set("q", new String[] { "alternate_id_a:\"" + metadataPid + "\"" });
-        p.set("rows", 2);
-
-        QueryResponse response = null;
-        response = solr.query(p);
-        if (response.getResults().size() == 1) {
-            final String resolved = String.valueOf(response.getResults().get(0).getFirstValue("id"));
-            logger.debug("Resolved the alt-id " + metadataPid + " to " + resolved + ".");
-            return resolved;
-        } else {
-            return metadataPid;
-        }
-    }
-*/
-
-/*
-    private String getRightsWrapperText(final SolrDocument doc, final int volumeIndex) {
-        if (doc == null) {
-            return DEFAULT_TEXT;
-        }
-        final Object firstWrapperText = ((List) doc.getFieldValues("rights_wrapper_a")).get(volumeIndex);
-        if (firstWrapperText == null) {
-            return DEFAULT_TEXT;
-        } else {
-            return firstWrapperText.toString();
-        }
-    }
-*/
 
     private boolean canAccessResource(SolrDocument doc, HttpServletRequest request) {
         if (doc == null) {
