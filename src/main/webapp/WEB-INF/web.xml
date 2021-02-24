@@ -17,6 +17,14 @@
     <param-name>virgo-base-url</param-name>
     <param-value>https://search.lib.virginia.edu/items/</param-value>
   </context-param>
+  <context-param>
+    <param-name>citations-base-url</param-name>
+    <param-value>https://citations-ws.internal.lib.virginia.edu/format/mla</param-value>
+  </context-param>
+  <context-param>
+    <param-name>catalog-pool-base-url</param-name>
+    <param-value>https://pool-solr-ws-uva-library.internal.lib.virginia.edu/api/resource/</param-value>
+  </context-param>
   <servlet>
     <servlet-name>iiif-rights-wrapper</servlet-name>
     <servlet-class>edu.virginia.lib.fedora.disseminators.convert.ConvertServlet</servlet-class>

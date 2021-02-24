@@ -8,6 +8,10 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Collection;
 import java.util.List;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -27,7 +31,9 @@ import org.apache.commons.imaging.formats.tiff.write.TiffOutputSet;
 import org.apache.commons.io.IOUtils;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.methods.HttpRequestBase;
 import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.utils.URIBuilder;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
@@ -69,6 +75,10 @@ public class ConvertServlet extends HttpServlet {
 
     private String virgoBaseUrl;
 
+    private String citationsBaseUrl;
+
+    private String catalogPoolBaseUrl;
+
     public void init() throws ServletException {
         try {
             iiifBaseUrl = getServletContext().getInitParameter("iiif-base-url");
@@ -79,6 +89,8 @@ public class ConvertServlet extends HttpServlet {
             ((CommonsHttpSolrServer) solr).setParser(new XMLResponseParser());
             tracksysBaseUrl = getServletContext().getInitParameter("tracksys-base-url");
             virgoBaseUrl = getServletContext().getInitParameter("virgo-base-url");
+            citationsBaseUrl = getServletContext().getInitParameter("citations-base-url");
+            catalogPoolBaseUrl = getServletContext().getInitParameter("catalog-pool-base-url");
             logger.trace("Servlet startup complete. (version " + VERSION + ")");
         } catch (IOException ex) {
             logger.error("Unable to start ConvertServlet (version " + VERSION + ")", ex);
@@ -158,29 +170,30 @@ public class ConvertServlet extends HttpServlet {
         // build full citation from MLA citation plus rights info
 
         // citation:
-        // TODO: get from citations-ws
-        String citation = "";
+        String citation;
+        try {
+            citation = getCitation(tsMetaInfo.catalogKey);
+        } catch (Exception e) {
+            citation = "";
 
-        // fallback:
-		if (tsMetaInfo.title != "" ) {
-	        citation += tsMetaInfo.title.replaceAll("\\.$","") + ".  ";
-		}
-		if (tsMetaInfo.callNumber != "" ) {
-	        citation += tsMetaInfo.callNumber + ".  ";
-		}
-        citation += "University of Virginia Library, Charlottesville, VA.";
+            if (tsMetaInfo.title != "" ) {
+                citation += tsMetaInfo.title.replaceAll("\\.$","") + ".  ";
+            }
+            if (tsMetaInfo.callNumber != "" ) {
+                citation += tsMetaInfo.callNumber + ".  ";
+            }
+            citation += "University of Virginia Library, Charlottesville, VA.";
+        }
 
         // rights:
         String rights;
-
-        // fallback:
-        rights = "University of Virginia Library - search.lib.virginia.edu\nUnder 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nCopyright and other legal restrictions may apply.  Commercial use without permission is prohibited.";
-
         if (tsMetaInfo.rightsStatement != "") {
             rights = tsMetaInfo.rightsStatement;
+        } else {
+            rights = "University of Virginia Library - search.lib.virginia.edu\nUnder 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nCopyright and other legal restrictions may apply.  Commercial use without permission is prohibited.";
         }
 
-		String fullCitation = citation + "\n" + virgoBaseUrl + tsMetaInfo.catalogKey + "\n\n" + rights;
+        String fullCitation = citation + "\n" + virgoBaseUrl + tsMetaInfo.catalogKey + "\n\n" + rights;
 
         // format the citation
         try {
@@ -370,6 +383,29 @@ public class ConvertServlet extends HttpServlet {
         }
     }
 
+    private String getCitation(final String id) throws ClientProtocolException, IOException, URISyntaxException {
+        String queryParams = "";
+        queryParams += "?item=" + URLEncoder.encode(catalogPoolBaseUrl + id, StandardCharsets.UTF_8);
+        queryParams += "&inline=1";
+        queryParams += "&text=1";
+
+        final String url = citationsBaseUrl + queryParams;
+
+        HttpGet get = new HttpGet(url);
+        try {
+            HttpResponse response = client.execute(get);
+            if (response.getStatusLine().getStatusCode() != 200) {
+                throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
+            } else {
+                String citation = EntityUtils.toString(response.getEntity());
+                logger.debug("got citation: [" + citation + "]");
+                return citation;
+            }
+        } finally {
+            get.releaseConnection();
+        }
+    }
+
 /*
     private String resolveSolrId(final String metadataPid) throws SolrServerException {
         final ModifiableSolrParams p = new ModifiableSolrParams();
@@ -458,7 +494,7 @@ public class ConvertServlet extends HttpServlet {
                         break;
                     }
                 }
-				if (!found) {
+                if (!found) {
                     for (int i = maxLength - 1; i > 0; i --) {
                         if (s.charAt(i) == breakpoint2) {
                             wrapped.append(s.substring(0, i+1).trim());
@@ -468,7 +504,7 @@ public class ConvertServlet extends HttpServlet {
                             break;
                         }
                     }
-				}
+                }
                 if (!found) {
                     // no good breakpoint found, break it at the maxLength
                     wrapped.append(s.substring(0, maxLength).trim());
