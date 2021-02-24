@@ -108,6 +108,14 @@ public class ConvertServlet extends HttpServlet {
             referer = " (referer: " + referer + ")";
         }
 
+        if (req.getParameter("about") != null) {
+            resp.setStatus(HttpServletResponse.SC_OK);
+            resp.setContentType("text/plain");
+            IOUtils.write("Rights wrapper service version " + VERSION + "\n\n" + iiifBaseUrl + "\n" + solrUrl, resp.getOutputStream());
+            resp.getOutputStream().close();
+            return;
+        }
+
         // parse page pid from end of path
         String pathInfo = req.getPathInfo();
         String[] pathParts = pathInfo.split("/");
@@ -130,14 +138,6 @@ public class ConvertServlet extends HttpServlet {
         } catch (Exception e) {
             logger.error("Exception resolving metadata pid!", e);
             resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-            return;
-        }
-
-        if (req.getParameter("about") != null) {
-            resp.setStatus(HttpServletResponse.SC_OK);
-            resp.setContentType("text/plain");
-            IOUtils.write("Rights wrapper service version " + VERSION + "\n\n" + iiifBaseUrl + "\n" + solrUrl, resp.getOutputStream());
-            resp.getOutputStream().close();
             return;
         }
 
