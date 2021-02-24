@@ -173,6 +173,9 @@ public class ConvertServlet extends HttpServlet {
         String citation;
         try {
             citation = getCitation(tsMetaInfo.catalogKey);
+            if (tsMetaInfo.callNumber != "" ) {
+                citation += "\n" + tsMetaInfo.callNumber;
+            }
         } catch (Exception e) {
             citation = "";
 
