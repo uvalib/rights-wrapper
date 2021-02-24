@@ -4,14 +4,17 @@
   <context-param>
     <param-name>iiif-base-url</param-name>
     <param-value>https://iiif.lib.virginia.edu/iiif/</param-value>
+    <!--<param-value>https://iiiftest.lib.virginia.edu/iiif/</param-value>-->
   </context-param>
   <context-param>
     <param-name>solr-url</param-name>
     <param-value>http://virgo4-solr-production-replica-private.internal.lib.virginia.edu:8080/solr/test_core</param-value>
+    <!--<param-value>http://virgo4-solr-staging-replica-private.internal.lib.virginia.edu:8080/solr/test_core</param-value>-->
   </context-param>
   <context-param>
     <param-name>tracksys-base-url</param-name>
     <param-value>https://tracksys.lib.virginia.edu/api/</param-value>
+    <!--<param-value>https://tracksysdev.lib.virginia.edu/api/</param-value>-->
   </context-param>
   <context-param>
     <param-name>virgo-base-url</param-name>
@@ -20,10 +23,12 @@
   <context-param>
     <param-name>citations-base-url</param-name>
     <param-value>https://citations-ws.internal.lib.virginia.edu/format/mla</param-value>
+    <!--<param-value>https://citations-ws-dev.internal.lib.virginia.edu/format/mla</param-value>-->
   </context-param>
   <context-param>
     <param-name>catalog-pool-base-url</param-name>
     <param-value>https://pool-solr-ws-uva-library.internal.lib.virginia.edu/api/resource/</param-value>
+    <!--<param-value>https://pool-solr-ws-uva-library-dev.internal.lib.virginia.edu/api/resource/</param-value>-->
   </context-param>
   <servlet>
     <servlet-name>iiif-rights-wrapper</servlet-name>
