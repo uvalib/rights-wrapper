@@ -362,7 +362,7 @@ public class ConvertServlet extends HttpServlet {
 
     private String getCitation(final String id) throws ClientProtocolException, IOException, URISyntaxException {
         String queryParams = "";
-        queryParams += "?item=" + URLEncoder.encode(catalogPoolBaseUrl + id, StandardCharsets.UTF_8);
+        queryParams += "?item=" + URLEncoder.encode(catalogPoolBaseUrl + id, StandardCharsets.UTF_8.toString());
         queryParams += "&inline=1";
         queryParams += "&nohtml=1";
 
