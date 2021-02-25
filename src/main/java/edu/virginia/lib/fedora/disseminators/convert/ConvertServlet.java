@@ -34,6 +34,7 @@ import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.methods.HttpRequestBase;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.utils.URIBuilder;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
@@ -57,7 +58,7 @@ import org.json.simple.parser.ParseException;
  */
 public class ConvertServlet extends HttpServlet {
 
-    private static final String VERSION = "2.1.2";
+    private static final String VERSION = "2.2.0";
 
     final Logger logger = LoggerFactory.getLogger(ConvertServlet.class);
 
@@ -87,8 +88,30 @@ public class ConvertServlet extends HttpServlet {
             virgoBaseUrl = System.getenv("VIRGO_BASE_URL");
             citationsBaseUrl = System.getenv("CITATIONS_BASE_URL");
             catalogPoolBaseUrl = System.getenv("CATALOG_POOL_BASE_URL");
+
+            int connTimeout;
+            try {
+                connTimeout = Integer.parseInt(System.getenv("HTTP_CONN_TIMEOUT"));
+            } catch (NumberFormatException e) {
+                connTimeout = 5;
+            }
+
+            int readTimeout;
+            try {
+                readTimeout = Integer.parseInt(System.getenv("HTTP_READ_TIMEOUT"));
+            } catch (NumberFormatException e) {
+                readTimeout = 30;
+            }
+
+            RequestConfig config = RequestConfig.custom()
+                .setConnectTimeout(connTimeout * 1000)
+                .setConnectionRequestTimeout(connTimeout * 1000)
+                .setSocketTimeout(readTimeout * 1000)
+                .build();
+
+            client = HttpClientBuilder.create().setDefaultRequestConfig(config).build();
+
             convert = new ImageMagickProcess();
-            client = HttpClientBuilder.create().build();
             solr = new CommonsHttpSolrServer(solrUrl);
             ((CommonsHttpSolrServer) solr).setParser(new XMLResponseParser());
             logger.trace("Servlet startup complete. (version " + VERSION + ")");
