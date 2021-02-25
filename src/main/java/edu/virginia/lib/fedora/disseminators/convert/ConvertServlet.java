@@ -81,16 +81,16 @@ public class ConvertServlet extends HttpServlet {
 
     public void init() throws ServletException {
         try {
-            iiifBaseUrl = getServletContext().getInitParameter("iiif-base-url");
+            iiifBaseUrl = System.getenv("IIIF_BASE_URL");
+            solrUrl = System.getenv("SOLR_URL");
+            tracksysBaseUrl = System.getenv("TRACKSYS_BASE_URL");
+            virgoBaseUrl = System.getenv("VIRGO_BASE_URL");
+            citationsBaseUrl = System.getenv("CITATIONS_BASE_URL");
+            catalogPoolBaseUrl = System.getenv("CATALOG_POOL_BASE_URL");
             convert = new ImageMagickProcess();
             client = HttpClientBuilder.create().build();
-            solrUrl = getServletContext().getInitParameter("solr-url");
             solr = new CommonsHttpSolrServer(solrUrl);
             ((CommonsHttpSolrServer) solr).setParser(new XMLResponseParser());
-            tracksysBaseUrl = getServletContext().getInitParameter("tracksys-base-url");
-            virgoBaseUrl = getServletContext().getInitParameter("virgo-base-url");
-            citationsBaseUrl = getServletContext().getInitParameter("citations-base-url");
-            catalogPoolBaseUrl = getServletContext().getInitParameter("catalog-pool-base-url");
             logger.trace("Servlet startup complete. (version " + VERSION + ")");
         } catch (IOException ex) {
             logger.error("Unable to start ConvertServlet (version " + VERSION + ")", ex);
@@ -111,7 +111,13 @@ public class ConvertServlet extends HttpServlet {
         if (req.getParameter("about") != null) {
             resp.setStatus(HttpServletResponse.SC_OK);
             resp.setContentType("text/plain");
-            IOUtils.write("Rights wrapper service version " + VERSION + "\n\n" + iiifBaseUrl + "\n" + solrUrl, resp.getOutputStream());
+            IOUtils.write("Rights wrapper service version " + VERSION + "\n\n", resp.getOutputStream());
+            IOUtils.write("IIIF: " + iiifBaseUrl + "\n", resp.getOutputStream());
+            IOUtils.write("Solr: " + solrUrl + "\n", resp.getOutputStream());
+            IOUtils.write("Tracksys: " + tracksysBaseUrl + "\n", resp.getOutputStream());
+            IOUtils.write("Virgo: " + virgoBaseUrl + "\n", resp.getOutputStream());
+            IOUtils.write("Citations: " + citationsBaseUrl + "\n", resp.getOutputStream());
+            IOUtils.write("Catalog: " + catalogPoolBaseUrl + "\n", resp.getOutputStream());
             resp.getOutputStream().close();
             return;
         }
