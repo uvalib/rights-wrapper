@@ -116,10 +116,23 @@ public class ConvertServlet extends HttpServlet {
             return;
         }
 
-        // parse page pid from end of path
-        String pathInfo = req.getPathInfo();
-        String[] pathParts = pathInfo.split("/");
-        final String pagePid = pathParts[pathParts.length-1];
+        // parse page pid from end of path.  NOTE: trailing slashes are allowed.
+        // the following request paths are equivalent:
+        // /uva-lib:123456
+        // /uva-lib:123456/
+        // /thomas/jefferson/uva-lib:123456
+        // ///a/man//a///plan/a/canal//uva-lib:123456/////////
+
+        File f = new File(req.getPathInfo());
+        final String pagePid = f.getName();
+
+        if (pagePid == "") {
+            resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            resp.setContentType("text/plain");
+            IOUtils.write("Rights wrapper service version " + VERSION + "\nrequired parameters: pagePid (at end of url path)\noptional parameters: about, justMetadata", resp.getOutputStream());
+            resp.getOutputStream().close();
+            return;
+        }
 
         // convert page pid to metadata pid
         TracksysPidInfo tsPid;
