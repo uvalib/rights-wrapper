@@ -122,9 +122,9 @@ public class ConvertServlet extends HttpServlet {
         final String pagePid = pathParts[pathParts.length-1];
 
         // convert page pid to metadata pid
-        TracksysPidInfo tsPidInfo;
+        TracksysPidInfo tsPid;
         try {
-            tsPidInfo = new TracksysPidInfo(this.tracksysBaseUrl, pagePid);
+            tsPid = new TracksysPidInfo(this.tracksysBaseUrl, pagePid);
         } catch (Exception e) {
             logger.error("Exception resolving page pid!", e);
             resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
@@ -132,16 +132,16 @@ public class ConvertServlet extends HttpServlet {
         }
 
         // convert metadata pid to solr id and get rights statement
-        TracksysMetadataInfo tsMetaInfo;
+        TracksysMetadataInfo tsMeta;
         try {
-            tsMetaInfo = new TracksysMetadataInfo(this.tracksysBaseUrl, tsPidInfo.parentMetadataPid);
+            tsMeta = new TracksysMetadataInfo(this.tracksysBaseUrl, tsPid.metadataPid);
         } catch (Exception e) {
             logger.error("Exception resolving metadata pid!", e);
             resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return;
         }
 
-        if (tsMetaInfo.catalogKey == "") {
+        if (tsMeta.catalogKey == "") {
             resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             resp.setContentType("text/plain");
             IOUtils.write("Rights wrapper service version " + VERSION + "\nrequired parameters: pagePid (at end of url path)\noptional parameters: about, justMetadata", resp.getOutputStream());
@@ -151,14 +151,14 @@ public class ConvertServlet extends HttpServlet {
 
         // check Solr for access policy
         try {
-            final SolrDocument solrDoc = findSolrDocForId(tsMetaInfo.catalogKey);
+            final SolrDocument solrDoc = findSolrDocForId(tsMeta.catalogKey);
             if (solrDoc == null) {
-                logger.info("Denied request for \"" + tsMetaInfo.catalogKey + "\": 404 solr record not found" + referer);
+                logger.info("Denied request for \"" + tsMeta.catalogKey + "\": 404 solr record not found" + referer);
                 resp.sendError(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
             if (!canAccessResource(solrDoc, req)) {
-                logger.debug("Denied request for \"" + tsMetaInfo.catalogKey + "\": unauthorized: " + referer);
+                logger.debug("Denied request for \"" + tsMeta.catalogKey + "\": unauthorized: " + referer);
                 resp.sendError(HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
@@ -172,37 +172,40 @@ public class ConvertServlet extends HttpServlet {
         // citation:
         String citation;
         try {
-            citation = getCitation(tsMetaInfo.catalogKey);
-            if (tsMetaInfo.callNumber != "" ) {
-                citation += "\n" + tsMetaInfo.callNumber;
+            citation = getCitation(tsMeta.catalogKey);
+
+            // add call number to help identify copy
+            if (tsMeta.callNumber != "" ) {
+                citation += "\n" + tsMeta.callNumber;
             }
         } catch (Exception e) {
+            // emulate old style citation
             citation = "";
 
-            if (tsMetaInfo.title != "" ) {
-                citation += tsMetaInfo.title.replaceAll("\\.$","") + ".  ";
+            if (tsMeta.title != "" ) {
+                citation += tsMeta.title.replaceAll("\\.$","") + ".  ";
             }
-            if (tsMetaInfo.callNumber != "" ) {
-                citation += tsMetaInfo.callNumber + ".  ";
+            if (tsMeta.callNumber != "" ) {
+                citation += tsMeta.callNumber + ".  ";
             }
             citation += "University of Virginia Library, Charlottesville, VA.";
         }
 
         // rights:
         String rights;
-        if (tsMetaInfo.rightsStatement != "") {
-            rights = tsMetaInfo.rightsStatement;
+        if (tsMeta.rightsStatement != "") {
+            rights = tsMeta.rightsStatement;
         } else {
             rights = "University of Virginia Library - search.lib.virginia.edu\nUnder 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nCopyright and other legal restrictions may apply.  Commercial use without permission is prohibited.";
         }
 
-        String fullCitation = citation + "\n" + virgoBaseUrl + tsMetaInfo.catalogKey + "\n\n" + rights;
+        String fullCitation = citation + "\n" + virgoBaseUrl + tsMeta.catalogKey + "\n\n" + rights;
 
         // format the citation
         try {
             fullCitation = wrapLongLines(fullCitation, 130, ',', ' ');
         } catch (Exception ex) {
-            logger.info("Unable to generate citation for " + tsMetaInfo.catalogKey + ", will return an image without a citation.");
+            logger.info("Unable to generate citation for " + tsMeta.catalogKey + ", will return an image without a citation.");
         }
 
         // return result (either metadata or framed image)
@@ -212,9 +215,9 @@ public class ConvertServlet extends HttpServlet {
             resp.getOutputStream().write((fullCitation).getBytes("UTF-8"));
             resp.getOutputStream().close();
         } else {
-            File orig = File.createTempFile(tsMetaInfo.catalogKey + "-orig-", ".jpg");
-            File framed = File.createTempFile(tsMetaInfo.catalogKey + "-wrapped-", ".jpg");
-            File tagged = File.createTempFile(tsMetaInfo.catalogKey + "-wrapped-tagged-", ".jpg");
+            File orig = File.createTempFile(tsMeta.catalogKey + "-orig-", ".jpg");
+            File framed = File.createTempFile(tsMeta.catalogKey + "-wrapped-", ".jpg");
+            File tagged = File.createTempFile(tsMeta.catalogKey + "-wrapped-tagged-", ".jpg");
             try {
                 FileOutputStream origOut = new FileOutputStream(orig);
                 try {
@@ -272,11 +275,10 @@ public class ConvertServlet extends HttpServlet {
     }
 
     class TracksysPidInfo {
-        String parentMetadataPid;
-        String type;
-        String title;
+        String metadataPid = "";
+        String type = "";
 
-        TracksysPidInfo(final String tracksysBaseUrl, final String pagePid) throws ClientProtocolException, IOException, ParseException {
+        TracksysPidInfo(final String tracksysBaseUrl, final String pagePid) throws ClientProtocolException, IOException, ParseException, RuntimeException {
             final String url = tracksysBaseUrl + "pid/" + pagePid;
 
             HttpGet get = new HttpGet(url);
@@ -292,20 +294,20 @@ public class ConvertServlet extends HttpServlet {
                     JSONObject jsonResponse = (JSONObject) parseResult;
                     Object jsonValue;
 
+                    // required values -- allow to fail parsing
                     jsonValue = jsonResponse.get("parent_metadata_pid");
-                    this.parentMetadataPid = jsonValue.toString();
+                    this.metadataPid = jsonValue.toString();
 
+                    // optional values
                     jsonValue = jsonResponse.get("type");
-                    this.type = jsonValue.toString();
+                    if (jsonValue != null) {
+                        this.type = jsonValue.toString();
+                    }
 
-                    jsonValue = jsonResponse.get("title");
-                    this.title = jsonValue.toString();
+                    logger.debug("Resolved the page pid " + pagePid + " to " + metadataPid + ".");
 
-                    logger.debug("Resolved the page pid " + pagePid + " to " + parentMetadataPid + ".");
-
-                    //logger.debug("TracksysPidInfo: parentMetadataPid = [" + parentMetadataPid + "]");
-                    //logger.debug("TracksysPidInfo: type              = [" + type + "]");
-                    //logger.debug("TracksysPidInfo: title             = [" + parentMetadataPid + "]");
+                    //logger.debug("TracksysPidInfo: metadataPid = [" + metadataPid + "]");
+                    //logger.debug("TracksysPidInfo: type        = [" + type + "]");
                 }
             } finally {
                 get.releaseConnection();
@@ -314,12 +316,12 @@ public class ConvertServlet extends HttpServlet {
     }
 
     class TracksysMetadataInfo {
-        String catalogKey;
-        String callNumber;
-        String title;
-        String rightsStatement;
+        String catalogKey = "";
+        String callNumber = "";
+        String title = "";
+        String rightsStatement = "";
 
-        TracksysMetadataInfo(final String tracksysBaseUrl, final String metadataPid) throws ClientProtocolException, IOException, ParseException {
+        TracksysMetadataInfo(final String tracksysBaseUrl, final String metadataPid) throws ClientProtocolException, IOException, ParseException, RuntimeException {
             final String url = tracksysBaseUrl + "metadata/" + metadataPid + "?type=brief";
 
             HttpGet get = new HttpGet(url);
@@ -335,17 +337,25 @@ public class ConvertServlet extends HttpServlet {
                     JSONObject jsonResponse = (JSONObject) parseResult;
                     Object jsonValue;
 
+                    // required values -- allow to fail parsing
                     jsonValue = jsonResponse.get("catalogKey");
                     this.catalogKey = jsonValue.toString();
 
+                    // optional values
                     jsonValue = jsonResponse.get("callNumber");
-                    this.callNumber = jsonValue.toString();
+                    if (jsonValue != null) {
+                        this.callNumber = jsonValue.toString();
+                    }
 
                     jsonValue = jsonResponse.get("title");
-                    this.title = jsonValue.toString();
+                    if (jsonValue != null) {
+                        this.title = jsonValue.toString();
+                    }
 
                     jsonValue = jsonResponse.get("rightsStatement");
-                    this.rightsStatement = jsonValue.toString();
+                    if (jsonValue != null) {
+                        this.rightsStatement = jsonValue.toString();
+                    }
 
                     logger.debug("Resolved the metadata pid " + metadataPid + " to " + catalogKey + ".");
 
@@ -360,7 +370,7 @@ public class ConvertServlet extends HttpServlet {
         }
     }
 
-    private String getCitation(final String id) throws ClientProtocolException, IOException, URISyntaxException {
+    private String getCitation(final String id) throws ClientProtocolException, IOException, URISyntaxException, RuntimeException {
         String queryParams = "";
         queryParams += "?item=" + URLEncoder.encode(catalogPoolBaseUrl + id, StandardCharsets.UTF_8.toString());
         queryParams += "&inline=1";
@@ -391,20 +401,20 @@ public class ConvertServlet extends HttpServlet {
             return true;
         }
         final String policy = doc.getFirstValue("policy_a").toString();
-        if (policy.equals("uva") || policy.equals("uva-lib:2141110")) {
+        if (policy.equals("uva")) {
             boolean allow = request.getRemoteHost().toLowerCase().endsWith(".virginia.edu");
             if (!allow) {
                 logger.debug("Denying access to \"" + request.getRemoteHost().toLowerCase() + "\" for uva-only content.");
             }
             return allow;
-        } else if (policy.equals("public") || policy.equals("uva-lib:2141109")) {
+        } else if (policy.equals("public")) {
             return true;
         } else {
             return false;
         }
     }
 
-    private void downloadLargeImage(final String pid, OutputStream out) throws ClientProtocolException, IOException {
+    private void downloadLargeImage(final String pid, OutputStream out) throws ClientProtocolException, IOException, RuntimeException {
         final String url = this.iiifBaseUrl + pid + "/full/pct:50/0/default.jpg";
         HttpGet get = new HttpGet(url);
         try {
@@ -439,7 +449,8 @@ public class ConvertServlet extends HttpServlet {
                         break;
                     }
                 }
-                if (!found) {
+                if (!found && breakpoint1 != breakpoint2) {
+                    // try again using secondary breakpoint character
                     for (int i = maxLength - 1; i > 0; i --) {
                         if (s.charAt(i) == breakpoint2) {
                             wrapped.append(s.substring(0, i+1).trim());
