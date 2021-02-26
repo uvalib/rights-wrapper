@@ -1,7 +1,5 @@
 <configuration debug="true">
-  <appender name="FILE" class="ch.qos.logback.core.FileAppender">
-    <file>${catalina.base}/logs/rightswrapper2.log</file>
-    <append>true</append>
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
     <encoder>
       <pattern>
         %d{ISO8601} - %-5level - %msg%n
@@ -10,11 +8,11 @@
   </appender>
 
   <logger name="edu.virginia" level="TRACE" additivity="false">
-    <appender-ref ref="FILE" />
+    <appender-ref ref="STDOUT" />
   </logger>
 
   <root level="WARN">
-    <appender-ref ref="FILE" />
+    <appender-ref ref="STDOUT" />
   </root>
 
 </configuration>
