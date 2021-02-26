@@ -63,21 +63,14 @@ public class ConvertServlet extends HttpServlet {
     final Logger logger = LoggerFactory.getLogger(ConvertServlet.class);
 
     private ImageMagickProcess convert;
-
-    private String iiifBaseUrl;
-
     private CloseableHttpClient client;
-
-    private String solrUrl;
-
     private SolrServer solr;
 
+    private String iiifBaseUrl;
+    private String solrUrl;
     private String tracksysBaseUrl;
-
     private String virgoBaseUrl;
-
     private String citationsBaseUrl;
-
     private String catalogPoolBaseUrl;
 
     public void init() throws ServletException {
@@ -114,7 +107,14 @@ public class ConvertServlet extends HttpServlet {
             convert = new ImageMagickProcess();
             solr = new CommonsHttpSolrServer(solrUrl);
             ((CommonsHttpSolrServer) solr).setParser(new XMLResponseParser());
+
             logger.trace("Servlet startup complete. (version " + VERSION + ")");
+            logger.trace("[CONFIG] IIIF Base URL         : " + iiifBaseUrl);
+            logger.trace("[CONFIG] Solr URL              : " + solrUrl);
+            logger.trace("[CONFIG] Tracksys Base URL     : " + tracksysBaseUrl);
+            logger.trace("[CONFIG] Virgo Base URL        : " + virgoBaseUrl);
+            logger.trace("[CONFIG] Citations Base URL    : " + citationsBaseUrl);
+            logger.trace("[CONFIG] Catalog Pool Base URL : " + catalogPoolBaseUrl);
         } catch (IOException ex) {
             logger.error("Unable to start ConvertServlet (version " + VERSION + ")", ex);
             throw new ServletException(ex);
@@ -135,30 +135,35 @@ public class ConvertServlet extends HttpServlet {
             resp.setStatus(HttpServletResponse.SC_OK);
             resp.setContentType("text/plain");
             IOUtils.write("Rights wrapper service version " + VERSION + "\n\n", resp.getOutputStream());
-            IOUtils.write("IIIF: " + iiifBaseUrl + "\n", resp.getOutputStream());
-            IOUtils.write("Solr: " + solrUrl + "\n", resp.getOutputStream());
-            IOUtils.write("Tracksys: " + tracksysBaseUrl + "\n", resp.getOutputStream());
-            IOUtils.write("Virgo: " + virgoBaseUrl + "\n", resp.getOutputStream());
-            IOUtils.write("Citations: " + citationsBaseUrl + "\n", resp.getOutputStream());
-            IOUtils.write("Catalog: " + catalogPoolBaseUrl + "\n", resp.getOutputStream());
+            IOUtils.write("IIIF Base URL      : " + iiifBaseUrl + "\n", resp.getOutputStream());
+            IOUtils.write("Solr URL           : " + solrUrl + "\n", resp.getOutputStream());
+            IOUtils.write("Tracksys Base URL  : " + tracksysBaseUrl + "\n", resp.getOutputStream());
+            IOUtils.write("Virgo Base URL     : " + virgoBaseUrl + "\n", resp.getOutputStream());
+            IOUtils.write("Citations Base URL : " + citationsBaseUrl + "\n", resp.getOutputStream());
+            IOUtils.write("Catalog Base URL   : " + catalogPoolBaseUrl + "\n", resp.getOutputStream());
             resp.getOutputStream().close();
             return;
         }
 
         // parse page pid from end of path.  NOTE: trailing slashes are allowed.
         // the following request paths are equivalent:
-        // /uva-lib:123456
-        // /uva-lib:123456/
-        // /thomas/jefferson/uva-lib:123456
-        // ///a/man//a///plan/a/canal//uva-lib:123456/////////
+        // /pid/uva-lib:123456
+        // /pid/uva-lib:123456/
+        // /pid/thomas/jefferson/uva-lib:123456
+        // //pid//a/man//a///plan/a/canal//uva-lib:123456/////////
 
         File f = new File(req.getPathInfo());
         final String pagePid = f.getName();
 
+        // if no pid was passed, show some usage info
         if (pagePid == "") {
             resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             resp.setContentType("text/plain");
-            IOUtils.write("Rights wrapper service version " + VERSION + "\nrequired parameters: pagePid (at end of url path)\noptional parameters: about, justMetadata", resp.getOutputStream());
+            IOUtils.write("Rights wrapper service version " + VERSION + "\n\n", resp.getOutputStream());
+            IOUtils.write("usage:  GET /pid/{pagePID}\n\n", resp.getOutputStream());
+            IOUtils.write("optional parameters:\n", resp.getOutputStream());
+            IOUtils.write(" * about: shows configured service URLs\n", resp.getOutputStream());
+            IOUtils.write(" * justMetadata: returns just the image metadata\n", resp.getOutputStream());
             resp.getOutputStream().close();
             return;
         }
@@ -167,27 +172,30 @@ public class ConvertServlet extends HttpServlet {
         TracksysPidInfo tsPid;
         try {
             tsPid = new TracksysPidInfo(this.tracksysBaseUrl, pagePid);
+            if (tsPid.metadataPid == "") {
+                logger.error("Empty metadata pid in Tracksys pid response");
+                resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                return;
+            }
         } catch (Exception e) {
-            logger.error("Exception resolving page pid!", e);
+            logger.error("Exception resolving page pid:", e);
             resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return;
         }
 
-        // convert metadata pid to solr id and get rights statement
+        // convert metadata pid to catalog key, along with any rights statement
+        // (and title/call number for fallback citation)
         TracksysMetadataInfo tsMeta;
         try {
             tsMeta = new TracksysMetadataInfo(this.tracksysBaseUrl, tsPid.metadataPid);
+            if (tsMeta.catalogKey == "") {
+                logger.error("Empty catalog key in Tracksys metadata response");
+                resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                return;
+            }
         } catch (Exception e) {
-            logger.error("Exception resolving metadata pid!", e);
+            logger.error("Exception resolving metadata pid:", e);
             resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-            return;
-        }
-
-        if (tsMeta.catalogKey == "") {
-            resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            resp.setContentType("text/plain");
-            IOUtils.write("Rights wrapper service version " + VERSION + "\nrequired parameters: pagePid (at end of url path)\noptional parameters: about, justMetadata", resp.getOutputStream());
-            resp.getOutputStream().close();
             return;
         }
 
@@ -278,9 +286,11 @@ public class ConvertServlet extends HttpServlet {
                     origOut.close();
                 }
                 // add the frame
+                logger.debug("[Add image frame]");
                 convert.addBorder(orig, framed, fullCitation);
 
                 // add the exif
+                logger.debug("[Add image exif]");
                 addUserComment(framed, tagged, fullCitation);
 
                 // return the content
@@ -317,14 +327,15 @@ public class ConvertServlet extends HttpServlet {
     }
 
     class TracksysPidInfo {
-        String metadataPid = "";
-        String type = "";
+        private String metadataPid = "";
+        private String type = "";
 
         TracksysPidInfo(final String tracksysBaseUrl, final String pagePid) throws ClientProtocolException, IOException, ParseException, RuntimeException {
             final String url = tracksysBaseUrl + "pid/" + pagePid;
 
             HttpGet get = new HttpGet(url);
             try {
+                logger.debug("[PID lookup] : " + url);
                 HttpResponse response = client.execute(get);
                 if (response.getStatusLine().getStatusCode() != 200) {
                     throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
@@ -346,10 +357,10 @@ public class ConvertServlet extends HttpServlet {
                         this.type = jsonValue.toString();
                     }
 
-                    logger.debug("Resolved the page pid " + pagePid + " to " + metadataPid + ".");
+                    logger.debug("    metadataPid = [" + metadataPid + "]");
+                    logger.debug("    type        = [" + type + "]");
 
-                    //logger.debug("TracksysPidInfo: metadataPid = [" + metadataPid + "]");
-                    //logger.debug("TracksysPidInfo: type        = [" + type + "]");
+                    logger.info("Resolved the page pid " + pagePid + " to " + metadataPid + ".");
                 }
             } finally {
                 get.releaseConnection();
@@ -358,16 +369,17 @@ public class ConvertServlet extends HttpServlet {
     }
 
     class TracksysMetadataInfo {
-        String catalogKey = "";
-        String callNumber = "";
-        String title = "";
-        String rightsStatement = "";
+        private String catalogKey = "";
+        private String callNumber = "";
+        private String title = "";
+        private String rightsStatement = "";
 
         TracksysMetadataInfo(final String tracksysBaseUrl, final String metadataPid) throws ClientProtocolException, IOException, ParseException, RuntimeException {
             final String url = tracksysBaseUrl + "metadata/" + metadataPid + "?type=brief";
 
             HttpGet get = new HttpGet(url);
             try {
+                logger.debug("[metadata lookup] : " + url);
                 HttpResponse response = client.execute(get);
                 if (response.getStatusLine().getStatusCode() != 200) {
                     throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
@@ -399,12 +411,12 @@ public class ConvertServlet extends HttpServlet {
                         this.rightsStatement = jsonValue.toString();
                     }
 
-                    logger.debug("Resolved the metadata pid " + metadataPid + " to " + catalogKey + ".");
+                    logger.debug("    catalogKey      = [" + catalogKey + "]");
+                    logger.debug("    callNumber      = [" + callNumber + "]");
+                    logger.debug("    title           = [" + title + "]");
+                    logger.debug("    rightsStatement = [" + rightsStatement + "]");
 
-                    //logger.debug("TracksysMetadataInfo: catalogKey      = [" + catalogKey + "]");
-                    //logger.debug("TracksysMetadataInfo: callNumber      = [" + callNumber + "]");
-                    //logger.debug("TracksysMetadataInfo: title           = [" + title + "]");
-                    //logger.debug("TracksysMetadataInfo: rightsStatement = [" + rightsStatement + "]");
+                    logger.info("Resolved the metadata pid " + metadataPid + " to " + catalogKey + ".");
                 }
             } finally {
                 get.releaseConnection();
@@ -422,12 +434,13 @@ public class ConvertServlet extends HttpServlet {
 
         HttpGet get = new HttpGet(url);
         try {
+            logger.debug("[Citation generation] : " + url);
             HttpResponse response = client.execute(get);
             if (response.getStatusLine().getStatusCode() != 200) {
                 throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
             } else {
                 String citation = EntityUtils.toString(response.getEntity());
-                //logger.debug("got citation: [" + citation + "]");
+                logger.debug("    citation: [" + citation + "]");
                 return citation;
             }
         } finally {
@@ -460,6 +473,7 @@ public class ConvertServlet extends HttpServlet {
         final String url = this.iiifBaseUrl + pid + "/full/pct:50/0/default.jpg";
         HttpGet get = new HttpGet(url);
         try {
+            logger.debug("[IIIF download] : " + url);
             HttpResponse response = client.execute(get);
             if (response.getStatusLine().getStatusCode() != 200) {
                 throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
