@@ -9,6 +9,6 @@
 
   <servlet-mapping>
     <servlet-name>iiif-rights-wrapper</servlet-name>
-    <url-pattern>/*</url-pattern>
+    <url-pattern>/pid/*</url-pattern>
   </servlet-mapping>
 </web-app>
