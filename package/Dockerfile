@@ -23,7 +23,7 @@ FROM jetty:9.4.9-jre8-alpine
 USER root
 
 # install updates and dependancies
-RUN apk update && apk add imagemagick
+RUN apk update && apk add imagemagick ghostscript-fonts
 
 # the default user for this base image
 USER jetty
