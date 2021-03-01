@@ -35,7 +35,7 @@ EXPOSE 8080
 COPY --from=builder /build/target/rights-wrapper.war /var/lib/jetty/webapps/ROOT.war
 
 # Add the build tag
-ENV APP_HOME /usr/local/jetty
+ENV APP_HOME /var/lib/jetty
 ARG BUILD_TAG
 RUN test -n "$BUILD_TAG" && touch $APP_HOME/buildtag.build-$BUILD_TAG || touch $APP_HOME/buildtag.build-0
 
