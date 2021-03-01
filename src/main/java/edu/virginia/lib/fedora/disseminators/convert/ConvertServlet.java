@@ -157,21 +157,27 @@ public class ConvertServlet extends HttpServlet {
         File f = new File(req.getPathInfo());
         final String endpoint = f.getAbsolutePath();
 
+        // silence these in logs...
+        if (endpoint.equals("/favicon.ico")) {
+            ignoreHandler(req, resp);
+            return;
+        }
+
         logger.debug("GET " + endpoint);
 
         if (endpoint.equals("/healthcheck")) {
-            handleHealthcheck(req, resp);
+            healthcheckHandler(req, resp);
             return;
         }
 
         if (endpoint.equals("/version")) {
-            handleVersion(req, resp);
+            versionHandler(req, resp);
             return;
         }
 
         if (endpoint.startsWith("/api/pid/")) {
             final String pagePid = f.getName();
-            handleRightsWrapping(req, resp, pagePid);
+            pidHandler(req, resp, pagePid);
             return;
         }
 
@@ -203,21 +209,26 @@ public class ConvertServlet extends HttpServlet {
         resp.getOutputStream().close();
     }
 
-    private void handleVersion(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+    private void versionHandler(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         resp.setStatus(HttpServletResponse.SC_OK);
         resp.setContentType("application/json");
         IOUtils.write("{\"build\":\"" + buildVersion + "\"}", resp.getOutputStream());
         resp.getOutputStream().close();
     }
 
-    private void handleHealthcheck(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+    private void healthcheckHandler(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         resp.setStatus(HttpServletResponse.SC_OK);
         resp.setContentType("application/json");
         IOUtils.write("{}", resp.getOutputStream());
         resp.getOutputStream().close();
     }
 
-    private void handleRightsWrapping(HttpServletRequest req, HttpServletResponse resp, final String pagePid) throws ServletException, IOException {
+    private void ignoreHandler(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        resp.setStatus(HttpServletResponse.SC_OK);
+        resp.getOutputStream().close();
+    }
+
+    private void pidHandler(HttpServletRequest req, HttpServletResponse resp, final String pagePid) throws ServletException, IOException {
         long start = System.currentTimeMillis();
 
         String referer = req.getHeader("referer");
