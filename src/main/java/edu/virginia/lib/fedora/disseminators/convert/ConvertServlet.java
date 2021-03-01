@@ -173,8 +173,8 @@ public class ConvertServlet extends HttpServlet {
         try {
             tsPid = new TracksysPidInfo(this.tracksysBaseUrl, pagePid);
             if (tsPid.metadataPid == "") {
-                logger.error("Empty metadata pid in Tracksys pid response");
-                resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                logger.info("Empty metadata pid in Tracksys pid response (probably pid not found)");
+                resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
         } catch (Exception e) {
@@ -337,31 +337,38 @@ public class ConvertServlet extends HttpServlet {
             try {
                 logger.debug("[PID lookup] : " + url);
                 HttpResponse response = client.execute(get);
+
+                // handle a not found error
+                if (response.getStatusLine().getStatusCode() == 404) {
+                    return;
+                }
+
+                // all other error cases
                 if (response.getStatusLine().getStatusCode() != 200) {
                     throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
-                } else {
-                    String apiResponse = EntityUtils.toString(response.getEntity());
-
-                    JSONParser jsonParser = new JSONParser();
-                    Object parseResult = jsonParser.parse(apiResponse);
-                    JSONObject jsonResponse = (JSONObject) parseResult;
-                    Object jsonValue;
-
-                    // required values -- allow to fail parsing
-                    jsonValue = jsonResponse.get("parent_metadata_pid");
-                    this.metadataPid = jsonValue.toString();
-
-                    // optional values
-                    jsonValue = jsonResponse.get("type");
-                    if (jsonValue != null) {
-                        this.type = jsonValue.toString();
-                    }
-
-                    logger.debug("    metadataPid = [" + metadataPid + "]");
-                    logger.debug("    type        = [" + type + "]");
-
-                    logger.info("Resolved the page pid " + pagePid + " to " + metadataPid + ".");
                 }
+
+                String apiResponse = EntityUtils.toString(response.getEntity());
+
+                JSONParser jsonParser = new JSONParser();
+                Object parseResult = jsonParser.parse(apiResponse);
+                JSONObject jsonResponse = (JSONObject) parseResult;
+                Object jsonValue;
+
+                // required values -- allow to fail parsing
+                jsonValue = jsonResponse.get("parent_metadata_pid");
+                this.metadataPid = jsonValue.toString();
+
+                // optional values
+                jsonValue = jsonResponse.get("type");
+                if (jsonValue != null) {
+                    this.type = jsonValue.toString();
+                }
+
+                logger.debug("    metadataPid = [" + metadataPid + "]");
+                logger.debug("    type        = [" + type + "]");
+
+                logger.info("Resolved the page pid " + pagePid + " to " + metadataPid + ".");
             } finally {
                 get.releaseConnection();
             }
