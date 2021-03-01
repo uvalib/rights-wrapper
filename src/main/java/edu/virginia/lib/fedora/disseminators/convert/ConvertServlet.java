@@ -135,7 +135,7 @@ public class ConvertServlet extends HttpServlet {
 
         try {
             String tagPrefix = "buildtag.";
-            File dir = new File("/usr/local/jetty");
+            File dir = new File("/var/lib/jetty");
             FileFilter fileFilter = new WildcardFileFilter(tagPrefix + "*");
             File[] files = dir.listFiles(fileFilter);
             if (files.length > 0) {
