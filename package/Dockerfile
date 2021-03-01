@@ -34,6 +34,11 @@ EXPOSE 8080
 # copy the WAR file
 COPY --from=builder /build/target/rights-wrapper.war /var/lib/jetty/webapps/ROOT.war
 
+# Add the build tag
+ENV APP_HOME /usr/local/jetty
+ARG BUILD_TAG
+RUN test -n "$BUILD_TAG" && touch $APP_HOME/buildtag.build-$BUILD_TAG || touch $APP_HOME/buildtag.build-0
+
 #
 # end of file
 #

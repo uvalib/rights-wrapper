@@ -2,6 +2,7 @@ package edu.virginia.lib.fedora.disseminators.convert;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileFilter;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -29,6 +30,8 @@ import org.apache.commons.imaging.formats.tiff.constants.ExifTagConstants;
 import org.apache.commons.imaging.formats.tiff.write.TiffOutputDirectory;
 import org.apache.commons.imaging.formats.tiff.write.TiffOutputSet;
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.filefilter.WildcardFileFilter;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.methods.HttpRequestBase;
@@ -73,6 +76,8 @@ public class ConvertServlet extends HttpServlet {
     private String citationsBaseUrl;
     private String catalogPoolBaseUrl;
 
+    private String buildVersion;
+
     public void init() throws ServletException {
         try {
             iiifBaseUrl = System.getenv("IIIF_BASE_URL");
@@ -108,7 +113,11 @@ public class ConvertServlet extends HttpServlet {
             solr = new CommonsHttpSolrServer(solrUrl);
             ((CommonsHttpSolrServer) solr).setParser(new XMLResponseParser());
 
-            logger.trace("Servlet startup complete. (version " + VERSION + ")");
+            buildVersion = getBuildVersion();
+
+            logger.trace("Servlet startup complete.");
+            logger.trace("[CONFIG] Version               : " + VERSION);
+            logger.trace("[CONFIG] Build Version         : " + buildVersion);
             logger.trace("[CONFIG] IIIF Base URL         : " + iiifBaseUrl);
             logger.trace("[CONFIG] Solr URL              : " + solrUrl);
             logger.trace("[CONFIG] Tracksys Base URL     : " + tracksysBaseUrl);
@@ -119,6 +128,24 @@ public class ConvertServlet extends HttpServlet {
             logger.error("Unable to start ConvertServlet (version " + VERSION + ")", ex);
             throw new ServletException(ex);
         }
+    }
+
+    private String getBuildVersion() {
+        String buildVersion = "unknown";
+
+        try {
+            String tagPrefix = "buildtag.";
+            //File dir = new File("/usr/local/jetty");
+            File dir = new File("/tmp");
+            FileFilter fileFilter = new WildcardFileFilter(tagPrefix + "*");
+            File[] files = dir.listFiles(fileFilter);
+            if (files.length > 0) {
+                buildVersion = files[0].getName().replaceAll(tagPrefix, "");
+            }
+        } catch (Exception ex) {
+        }
+
+        return buildVersion;
     }
 
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -143,7 +170,7 @@ public class ConvertServlet extends HttpServlet {
             return;
         }
 
-        if (endpoint.startsWith("/pid/")) {
+        if (endpoint.startsWith("/api/pid/")) {
             final String pagePid = f.getName();
             handleRightsWrapping(req, resp, pagePid);
             return;
@@ -170,7 +197,7 @@ public class ConvertServlet extends HttpServlet {
         resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
         resp.setContentType("text/plain");
         IOUtils.write("Rights wrapper service version " + VERSION + "\n\n", resp.getOutputStream());
-        IOUtils.write("usage:  GET /pid/{pagePID}\n\n", resp.getOutputStream());
+        IOUtils.write("usage:  GET /api/pid/{pagePID}\n\n", resp.getOutputStream());
         IOUtils.write("optional parameters:\n", resp.getOutputStream());
         IOUtils.write(" * about: shows configured service URLs\n", resp.getOutputStream());
         IOUtils.write(" * justMetadata: returns just the image metadata\n", resp.getOutputStream());
@@ -179,15 +206,15 @@ public class ConvertServlet extends HttpServlet {
 
     private void handleVersion(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         resp.setStatus(HttpServletResponse.SC_OK);
-        resp.setContentType("text/plain");
-        IOUtils.write("version goes here\n", resp.getOutputStream());
+        resp.setContentType("application/json");
+        IOUtils.write("{\"build\":\"" + buildVersion + "\"}", resp.getOutputStream());
         resp.getOutputStream().close();
     }
 
     private void handleHealthcheck(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         resp.setStatus(HttpServletResponse.SC_OK);
-        resp.setContentType("text/plain");
-        IOUtils.write("healthcheck goes here\n", resp.getOutputStream());
+        resp.setContentType("application/json");
+        IOUtils.write("{}", resp.getOutputStream());
         resp.getOutputStream().close();
     }
 
