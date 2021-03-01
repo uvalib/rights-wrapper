@@ -122,6 +122,76 @@ public class ConvertServlet extends HttpServlet {
     }
 
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        if (req.getParameter("about") != null) {
+            showAbout(req, resp);
+            return;
+        }
+
+        // determine which endpoint was requested (if any)
+        File f = new File(req.getPathInfo());
+        final String endpoint = f.getAbsolutePath();
+
+        logger.debug("GET " + endpoint);
+
+        if (endpoint.equals("/healthcheck")) {
+            handleHealthcheck(req, resp);
+            return;
+        }
+
+        if (endpoint.equals("/version")) {
+            handleVersion(req, resp);
+            return;
+        }
+
+        if (endpoint.startsWith("/pid/")) {
+            final String pagePid = f.getName();
+            handleRightsWrapping(req, resp, pagePid);
+            return;
+        }
+
+        // no match; show usage info
+        showUsage(req, resp);
+    }
+
+    private void showAbout(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        resp.setStatus(HttpServletResponse.SC_OK);
+        resp.setContentType("text/plain");
+        IOUtils.write("Rights wrapper service version " + VERSION + "\n\n", resp.getOutputStream());
+        IOUtils.write("IIIF Base URL      : " + iiifBaseUrl + "\n", resp.getOutputStream());
+        IOUtils.write("Solr URL           : " + solrUrl + "\n", resp.getOutputStream());
+        IOUtils.write("Tracksys Base URL  : " + tracksysBaseUrl + "\n", resp.getOutputStream());
+        IOUtils.write("Virgo Base URL     : " + virgoBaseUrl + "\n", resp.getOutputStream());
+        IOUtils.write("Citations Base URL : " + citationsBaseUrl + "\n", resp.getOutputStream());
+        IOUtils.write("Catalog Base URL   : " + catalogPoolBaseUrl + "\n", resp.getOutputStream());
+        resp.getOutputStream().close();
+    }
+
+    private void showUsage(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+        resp.setContentType("text/plain");
+        IOUtils.write("Rights wrapper service version " + VERSION + "\n\n", resp.getOutputStream());
+        IOUtils.write("usage:  GET /pid/{pagePID}\n\n", resp.getOutputStream());
+        IOUtils.write("optional parameters:\n", resp.getOutputStream());
+        IOUtils.write(" * about: shows configured service URLs\n", resp.getOutputStream());
+        IOUtils.write(" * justMetadata: returns just the image metadata\n", resp.getOutputStream());
+        resp.getOutputStream().close();
+    }
+
+    private void handleVersion(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        resp.setStatus(HttpServletResponse.SC_OK);
+        resp.setContentType("text/plain");
+        IOUtils.write("version goes here\n", resp.getOutputStream());
+        resp.getOutputStream().close();
+    }
+
+    private void handleHealthcheck(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        resp.setStatus(HttpServletResponse.SC_OK);
+        resp.setContentType("text/plain");
+        IOUtils.write("healthcheck goes here\n", resp.getOutputStream());
+        resp.getOutputStream().close();
+    }
+
+    private void handleRightsWrapping(HttpServletRequest req, HttpServletResponse resp, final String pagePid) throws ServletException, IOException {
         long start = System.currentTimeMillis();
 
         String referer = req.getHeader("referer");
@@ -129,43 +199,6 @@ public class ConvertServlet extends HttpServlet {
             referer = "";
         } else {
             referer = " (referer: " + referer + ")";
-        }
-
-        if (req.getParameter("about") != null) {
-            resp.setStatus(HttpServletResponse.SC_OK);
-            resp.setContentType("text/plain");
-            IOUtils.write("Rights wrapper service version " + VERSION + "\n\n", resp.getOutputStream());
-            IOUtils.write("IIIF Base URL      : " + iiifBaseUrl + "\n", resp.getOutputStream());
-            IOUtils.write("Solr URL           : " + solrUrl + "\n", resp.getOutputStream());
-            IOUtils.write("Tracksys Base URL  : " + tracksysBaseUrl + "\n", resp.getOutputStream());
-            IOUtils.write("Virgo Base URL     : " + virgoBaseUrl + "\n", resp.getOutputStream());
-            IOUtils.write("Citations Base URL : " + citationsBaseUrl + "\n", resp.getOutputStream());
-            IOUtils.write("Catalog Base URL   : " + catalogPoolBaseUrl + "\n", resp.getOutputStream());
-            resp.getOutputStream().close();
-            return;
-        }
-
-        // parse page pid from end of path.  NOTE: trailing slashes are allowed.
-        // the following request paths are equivalent:
-        // /pid/uva-lib:123456
-        // /pid/uva-lib:123456/
-        // /pid/thomas/jefferson/uva-lib:123456
-        // //pid//a/man//a///plan/a/canal//uva-lib:123456/////////
-
-        File f = new File(req.getPathInfo());
-        final String pagePid = f.getName();
-
-        // if no pid was passed, show some usage info
-        if (pagePid == "") {
-            resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            resp.setContentType("text/plain");
-            IOUtils.write("Rights wrapper service version " + VERSION + "\n\n", resp.getOutputStream());
-            IOUtils.write("usage:  GET /pid/{pagePID}\n\n", resp.getOutputStream());
-            IOUtils.write("optional parameters:\n", resp.getOutputStream());
-            IOUtils.write(" * about: shows configured service URLs\n", resp.getOutputStream());
-            IOUtils.write(" * justMetadata: returns just the image metadata\n", resp.getOutputStream());
-            resp.getOutputStream().close();
-            return;
         }
 
         // convert page pid to metadata pid
