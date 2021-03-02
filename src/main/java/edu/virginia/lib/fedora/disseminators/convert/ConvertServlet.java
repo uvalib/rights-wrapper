@@ -67,25 +67,30 @@ public class ConvertServlet extends HttpServlet {
 
     private ImageMagickProcess convert;
     private CloseableHttpClient client;
-    private SolrServer solr;
+    private SolrServer solrCatalog;
+    private SolrServer solrImages;
 
     private String iiifBaseUrl;
-    private String solrUrl;
+    private String solrCatalogUrl;
+    private String solrImagesUrl;
     private String tracksysBaseUrl;
     private String virgoBaseUrl;
     private String citationsBaseUrl;
     private String catalogPoolBaseUrl;
+    private String imagesPoolBaseUrl;
 
     private String buildVersion;
 
     public void init() throws ServletException {
         try {
             iiifBaseUrl = System.getenv("IIIF_BASE_URL");
-            solrUrl = System.getenv("SOLR_URL");
+            solrCatalogUrl = System.getenv("SOLR_CATALOG_URL");
+            solrImagesUrl = System.getenv("SOLR_IMAGES_URL");
             tracksysBaseUrl = System.getenv("TRACKSYS_BASE_URL");
             virgoBaseUrl = System.getenv("VIRGO_BASE_URL");
             citationsBaseUrl = System.getenv("CITATIONS_BASE_URL");
             catalogPoolBaseUrl = System.getenv("CATALOG_POOL_BASE_URL");
+            imagesPoolBaseUrl = System.getenv("IMAGES_POOL_BASE_URL");
 
             int connTimeout;
             try {
@@ -110,8 +115,12 @@ public class ConvertServlet extends HttpServlet {
             client = HttpClientBuilder.create().setDefaultRequestConfig(config).build();
 
             convert = new ImageMagickProcess();
-            solr = new CommonsHttpSolrServer(solrUrl);
-            ((CommonsHttpSolrServer) solr).setParser(new XMLResponseParser());
+
+            solrCatalog = new CommonsHttpSolrServer(solrCatalogUrl);
+            ((CommonsHttpSolrServer) solrCatalog).setParser(new XMLResponseParser());
+
+            solrImages = new CommonsHttpSolrServer(solrImagesUrl);
+            ((CommonsHttpSolrServer) solrImages).setParser(new XMLResponseParser());
 
             buildVersion = getBuildVersion();
 
@@ -119,11 +128,13 @@ public class ConvertServlet extends HttpServlet {
             logger.trace("[CONFIG] Version               : " + VERSION);
             logger.trace("[CONFIG] Build Version         : " + buildVersion);
             logger.trace("[CONFIG] IIIF Base URL         : " + iiifBaseUrl);
-            logger.trace("[CONFIG] Solr URL              : " + solrUrl);
+            logger.trace("[CONFIG] Solr Catalog URL      : " + solrCatalogUrl);
+            logger.trace("[CONFIG] Solr Images URL       : " + solrImagesUrl);
             logger.trace("[CONFIG] Tracksys Base URL     : " + tracksysBaseUrl);
             logger.trace("[CONFIG] Virgo Base URL        : " + virgoBaseUrl);
             logger.trace("[CONFIG] Citations Base URL    : " + citationsBaseUrl);
             logger.trace("[CONFIG] Catalog Pool Base URL : " + catalogPoolBaseUrl);
+            logger.trace("[CONFIG] Images Pool Base URL  : " + imagesPoolBaseUrl);
         } catch (IOException ex) {
             logger.error("Unable to start ConvertServlet (version " + VERSION + ")", ex);
             throw new ServletException(ex);
@@ -189,12 +200,14 @@ public class ConvertServlet extends HttpServlet {
         resp.setStatus(HttpServletResponse.SC_OK);
         resp.setContentType("text/plain");
         IOUtils.write("Rights wrapper service version " + VERSION + "\n\n", resp.getOutputStream());
-        IOUtils.write("IIIF Base URL      : " + iiifBaseUrl + "\n", resp.getOutputStream());
-        IOUtils.write("Solr URL           : " + solrUrl + "\n", resp.getOutputStream());
-        IOUtils.write("Tracksys Base URL  : " + tracksysBaseUrl + "\n", resp.getOutputStream());
-        IOUtils.write("Virgo Base URL     : " + virgoBaseUrl + "\n", resp.getOutputStream());
-        IOUtils.write("Citations Base URL : " + citationsBaseUrl + "\n", resp.getOutputStream());
-        IOUtils.write("Catalog Base URL   : " + catalogPoolBaseUrl + "\n", resp.getOutputStream());
+        IOUtils.write("IIIF Base URL         : " + iiifBaseUrl + "\n", resp.getOutputStream());
+        IOUtils.write("Solr Catalog URL      : " + solrCatalogUrl + "\n", resp.getOutputStream());
+        IOUtils.write("Solr Images URL       : " + solrImagesUrl + "\n", resp.getOutputStream());
+        IOUtils.write("Tracksys Base URL     : " + tracksysBaseUrl + "\n", resp.getOutputStream());
+        IOUtils.write("Virgo Base URL        : " + virgoBaseUrl + "\n", resp.getOutputStream());
+        IOUtils.write("Citations Base URL    : " + citationsBaseUrl + "\n", resp.getOutputStream());
+        IOUtils.write("Catalog Pool Base URL : " + catalogPoolBaseUrl + "\n", resp.getOutputStream());
+        IOUtils.write("Images Pool Base URL  : " + imagesPoolBaseUrl + "\n", resp.getOutputStream());
         resp.getOutputStream().close();
     }
 
@@ -204,8 +217,8 @@ public class ConvertServlet extends HttpServlet {
         IOUtils.write("Rights wrapper service version " + VERSION + "\n\n", resp.getOutputStream());
         IOUtils.write("usage:  GET /api/pid/{pagePID}\n\n", resp.getOutputStream());
         IOUtils.write("optional parameters:\n", resp.getOutputStream());
-        IOUtils.write(" * about: shows configured service URLs\n", resp.getOutputStream());
-        IOUtils.write(" * justMetadata: returns just the image metadata\n", resp.getOutputStream());
+        IOUtils.write(" * about -- shows configured service URLs\n", resp.getOutputStream());
+        IOUtils.write(" * justMetadata -- returns just the image metadata\n", resp.getOutputStream());
         resp.getOutputStream().close();
     }
 
@@ -224,7 +237,7 @@ public class ConvertServlet extends HttpServlet {
     }
 
     private void ignoreHandler(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        resp.setStatus(HttpServletResponse.SC_OK);
+        resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
         resp.getOutputStream().close();
     }
 
@@ -238,47 +251,68 @@ public class ConvertServlet extends HttpServlet {
             referer = " (referer: " + referer + ")";
         }
 
-        // convert page pid to metadata pid
-        TracksysPidInfo tsPid;
+        // look up pid info for this page in tracksys
+        TracksysPid tsPid;
         try {
-            tsPid = new TracksysPidInfo(this.tracksysBaseUrl, pagePid);
-            if (tsPid.metadataPid == "") {
-                logger.info("Empty metadata pid in Tracksys pid response (probably pid not found)");
+            tsPid = new TracksysPid(tracksysBaseUrl, pagePid);
+            if (tsPid.pid.equals("")) {
+                logger.info("Pid " + pagePid + " not found in Tracksys.");
+                resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
+                return;
+            }
+            if (!tsPid.type.equals("master_file")) {
+                logger.info("Pid " + pagePid + " is not a master file.");
                 resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
         } catch (Exception e) {
-            logger.error("Exception resolving page pid:", e);
+            logger.error("Exception querying Tracksys pid info:", e);
             resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return;
         }
 
-        // convert metadata pid to catalog key, along with any rights statement
-        // (and title/call number for fallback citation)
-        TracksysMetadataInfo tsMeta;
+        // look up metadata info for this page in tracksys
+        TracksysMetadata tsMeta;
         try {
-            tsMeta = new TracksysMetadataInfo(this.tracksysBaseUrl, tsPid.metadataPid);
-            if (tsMeta.catalogKey == "") {
-                logger.error("Empty catalog key in Tracksys metadata response");
-                resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            tsMeta = new TracksysMetadata(tracksysBaseUrl, tsPid.parentMetadataPid);
+            if (tsMeta.pid.equals("")) {
+                logger.info("Pid " + tsPid.parentMetadataPid + " not found in Tracksys.");
+                resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
         } catch (Exception e) {
-            logger.error("Exception resolving metadata pid:", e);
+            logger.error("Exception querying Tracksys metadata info:", e);
             resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return;
+        }
+
+        // set up item-dependent service urls/parameters
+        String solrId;
+        SolrServer solr;
+        String poolBaseUrl;
+
+        if (!tsMeta.catalogKey.equals("")) {
+            logger.debug("Using catalog core parameters");
+            solrId = tsMeta.catalogKey;
+            solr = solrCatalog;
+            poolBaseUrl = catalogPoolBaseUrl;
+        } else {
+            logger.debug("Using images core parameters");
+            solrId = pagePid;
+            solr = solrImages;
+            poolBaseUrl = imagesPoolBaseUrl;
         }
 
         // check Solr for access policy
         try {
-            final SolrDocument solrDoc = findSolrDocForId(tsMeta.catalogKey);
+            final SolrDocument solrDoc = findSolrDocForId(solr, solrId);
             if (solrDoc == null) {
-                logger.info("Denied request for \"" + tsMeta.catalogKey + "\": 404 solr record not found" + referer);
+                logger.info("Denied request for \"" + solrId + "\": 404 solr record not found" + referer);
                 resp.sendError(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
             if (!canAccessResource(solrDoc, req)) {
-                logger.debug("Denied request for \"" + tsMeta.catalogKey + "\": unauthorized: " + referer);
+                logger.debug("Denied request for \"" + solrId + "\": unauthorized: " + referer);
                 resp.sendError(HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
@@ -292,20 +326,26 @@ public class ConvertServlet extends HttpServlet {
         // citation:
         String citation;
         try {
-            citation = getCitation(tsMeta.catalogKey);
+            citation = getCitation(poolBaseUrl, solrId);
+
+            logger.debug("Using provided citation");
 
             // add call number to help identify copy
-            if (tsMeta.callNumber != "" ) {
+            if (!tsMeta.callNumber.equals("")) {
                 citation += "\n" + tsMeta.callNumber;
             }
         } catch (Exception e) {
+            logger.error("Exception generating citation:", e);
+
+            logger.debug("generating fallback citation");
+
             // emulate old style citation
             citation = "";
 
-            if (tsMeta.title != "" ) {
+            if (!tsMeta.title.equals("")) {
                 citation += tsMeta.title.replaceAll("\\.$","") + ".  ";
             }
-            if (tsMeta.callNumber != "" ) {
+            if (!tsMeta.callNumber.equals("")) {
                 citation += tsMeta.callNumber + ".  ";
             }
             citation += "University of Virginia Library, Charlottesville, VA.";
@@ -313,19 +353,25 @@ public class ConvertServlet extends HttpServlet {
 
         // rights:
         String rights;
-        if (tsMeta.rightsStatement != "") {
+        if (!tsMeta.rightsStatement.equals("")) {
+            logger.debug("Using provided rights statement");
             rights = tsMeta.rightsStatement;
         } else {
+            logger.debug("generating fallback rights statement");
             rights = "University of Virginia Library - search.lib.virginia.edu\nUnder 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nCopyright and other legal restrictions may apply.  Commercial use without permission is prohibited.";
         }
 
-        String fullCitation = citation + "\n" + virgoBaseUrl + tsMeta.catalogKey + "\n\n" + rights;
+        // virgo url:
+        String virgoUrl = virgoBaseUrl + solrId;
+
+        // put it all together...
+        String fullCitation = citation + "\n" + virgoUrl + "\n\n" + rights;
 
         // format the citation
         try {
             fullCitation = wrapLongLines(fullCitation, 130, ',', ' ');
         } catch (Exception ex) {
-            logger.info("Unable to generate citation for " + tsMeta.catalogKey + ", will return an image without a citation.");
+            logger.info("Unable to generate citation for " + solrId + ", will return an image without a citation.");
         }
 
         // return result (either metadata or framed image)
@@ -335,9 +381,9 @@ public class ConvertServlet extends HttpServlet {
             resp.getOutputStream().write((fullCitation).getBytes("UTF-8"));
             resp.getOutputStream().close();
         } else {
-            File orig = File.createTempFile(tsMeta.catalogKey + "-orig-", ".jpg");
-            File framed = File.createTempFile(tsMeta.catalogKey + "-wrapped-", ".jpg");
-            File tagged = File.createTempFile(tsMeta.catalogKey + "-wrapped-tagged-", ".jpg");
+            File orig = File.createTempFile(solrId + "-orig-", ".jpg");
+            File framed = File.createTempFile(solrId + "-wrapped-", ".jpg");
+            File tagged = File.createTempFile(solrId + "-wrapped-tagged-", ".jpg");
             try {
                 FileOutputStream origOut = new FileOutputStream(orig);
                 try {
@@ -380,9 +426,11 @@ public class ConvertServlet extends HttpServlet {
                 tagged.delete();
             }
         }
+
+        logger.debug("Done!");
     }
 
-    private SolrDocument findSolrDocForId(final String id) throws SolrServerException {
+    private SolrDocument findSolrDocForId(final SolrServer solr, final String id) throws SolrServerException {
         final ModifiableSolrParams p = new ModifiableSolrParams();
         p.set("q", new String[] { "id:\"" + id + "\"" });
         p.set("rows", 2);
@@ -396,24 +444,23 @@ public class ConvertServlet extends HttpServlet {
         }
     }
 
-    class TracksysPidInfo {
-        private String metadataPid = "";
+    class TracksysPid {
+        private String pid = "";
         private String type = "";
+        private String parentMetadataPid = "";
 
-        TracksysPidInfo(final String tracksysBaseUrl, final String pagePid) throws ClientProtocolException, IOException, ParseException, RuntimeException {
+        TracksysPid(final String tracksysBaseUrl, final String pagePid) throws ClientProtocolException, IOException, ParseException, RuntimeException {
             final String url = tracksysBaseUrl + "pid/" + pagePid;
 
             HttpGet get = new HttpGet(url);
             try {
-                logger.debug("[PID lookup] : " + url);
+                logger.debug("[pid lookup] : " + url);
                 HttpResponse response = client.execute(get);
 
-                // handle a not found error
                 if (response.getStatusLine().getStatusCode() == 404) {
                     return;
                 }
 
-                // all other error cases
                 if (response.getStatusLine().getStatusCode() != 200) {
                     throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
                 }
@@ -425,85 +472,99 @@ public class ConvertServlet extends HttpServlet {
                 JSONObject jsonResponse = (JSONObject) parseResult;
                 Object jsonValue;
 
-                // required values -- allow to fail parsing
-                jsonValue = jsonResponse.get("parent_metadata_pid");
-                this.metadataPid = jsonValue.toString();
+                // required values
+                jsonValue = jsonResponse.get("pid");
+                pid = jsonValue.toString();
 
                 // optional values
                 jsonValue = jsonResponse.get("type");
                 if (jsonValue != null) {
-                    this.type = jsonValue.toString();
+                    type = jsonValue.toString();
                 }
 
-                logger.debug("    metadataPid = [" + metadataPid + "]");
-                logger.debug("    type        = [" + type + "]");
+                jsonValue = jsonResponse.get("parent_metadata_pid");
+                if (jsonValue != null) {
+                    parentMetadataPid = jsonValue.toString();
+                }
 
-                logger.info("Resolved the page pid " + pagePid + " to " + metadataPid + ".");
+                logger.debug("    pid               = [" + pid + "]");
+                logger.debug("    type              = [" + type + "]");
+                logger.debug("    parentMetadataPid = [" + parentMetadataPid + "]");
             } finally {
                 get.releaseConnection();
             }
         }
     }
 
-    class TracksysMetadataInfo {
+    class TracksysMetadata {
+        private String pid = "";
         private String catalogKey = "";
         private String callNumber = "";
         private String title = "";
         private String rightsStatement = "";
 
-        TracksysMetadataInfo(final String tracksysBaseUrl, final String metadataPid) throws ClientProtocolException, IOException, ParseException, RuntimeException {
+        TracksysMetadata(final String tracksysBaseUrl, final String metadataPid) throws ClientProtocolException, IOException, ParseException, RuntimeException {
             final String url = tracksysBaseUrl + "metadata/" + metadataPid + "?type=brief";
 
             HttpGet get = new HttpGet(url);
             try {
                 logger.debug("[metadata lookup] : " + url);
                 HttpResponse response = client.execute(get);
+
+                if (response.getStatusLine().getStatusCode() == 404) {
+                    return;
+                }
+
                 if (response.getStatusLine().getStatusCode() != 200) {
                     throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
-                } else {
-                    String apiResponse = EntityUtils.toString(response.getEntity());
-
-                    JSONParser jsonParser = new JSONParser();
-                    Object parseResult = jsonParser.parse(apiResponse);
-                    JSONObject jsonResponse = (JSONObject) parseResult;
-                    Object jsonValue;
-
-                    // required values -- allow to fail parsing
-                    jsonValue = jsonResponse.get("catalogKey");
-                    this.catalogKey = jsonValue.toString();
-
-                    // optional values
-                    jsonValue = jsonResponse.get("callNumber");
-                    if (jsonValue != null) {
-                        this.callNumber = jsonValue.toString();
-                    }
-
-                    jsonValue = jsonResponse.get("title");
-                    if (jsonValue != null) {
-                        this.title = jsonValue.toString();
-                    }
-
-                    jsonValue = jsonResponse.get("rightsStatement");
-                    if (jsonValue != null) {
-                        this.rightsStatement = jsonValue.toString();
-                    }
-
-                    logger.debug("    catalogKey      = [" + catalogKey + "]");
-                    logger.debug("    callNumber      = [" + callNumber + "]");
-                    logger.debug("    title           = [" + title + "]");
-                    logger.debug("    rightsStatement = [" + rightsStatement + "]");
-
-                    logger.info("Resolved the metadata pid " + metadataPid + " to " + catalogKey + ".");
                 }
+
+                String apiResponse = EntityUtils.toString(response.getEntity());
+
+                JSONParser jsonParser = new JSONParser();
+                Object parseResult = jsonParser.parse(apiResponse);
+                JSONObject jsonResponse = (JSONObject) parseResult;
+                Object jsonValue;
+
+                // required values
+                jsonValue = jsonResponse.get("pid");
+                pid = jsonValue.toString();
+
+                // optional values
+                jsonValue = jsonResponse.get("catalogKey");
+                if (jsonValue != null) {
+                    catalogKey = jsonValue.toString();
+                }
+
+                jsonValue = jsonResponse.get("callNumber");
+                if (jsonValue != null) {
+                    callNumber = jsonValue.toString();
+                }
+
+                jsonValue = jsonResponse.get("title");
+                if (jsonValue != null) {
+                    title = jsonValue.toString();
+                }
+
+                jsonValue = jsonResponse.get("rightsStatement");
+                if (jsonValue != null) {
+                    rightsStatement = jsonValue.toString();
+                }
+
+                logger.debug("    pid             = [" + pid + "]");
+                logger.debug("    catalogKey      = [" + catalogKey + "]");
+                logger.debug("    callNumber      = [" + callNumber + "]");
+                logger.debug("    title           = [" + title + "]");
+                logger.debug("    rightsStatement = [" + rightsStatement + "]");
             } finally {
                 get.releaseConnection();
             }
         }
     }
 
-    private String getCitation(final String id) throws ClientProtocolException, IOException, URISyntaxException, RuntimeException {
+    private String getCitation(final String poolBaseUrl, final String id) throws ClientProtocolException, IOException, URISyntaxException, RuntimeException {
         String queryParams = "";
-        queryParams += "?item=" + URLEncoder.encode(catalogPoolBaseUrl + id, StandardCharsets.UTF_8.toString());
+        queryParams += "?item=" + URLEncoder.encode(poolBaseUrl + id, StandardCharsets.UTF_8.toString());
         queryParams += "&inline=1";
         queryParams += "&nohtml=1";
 
@@ -547,7 +608,7 @@ public class ConvertServlet extends HttpServlet {
     }
 
     private void downloadLargeImage(final String pid, OutputStream out) throws ClientProtocolException, IOException, RuntimeException {
-        final String url = this.iiifBaseUrl + pid + "/full/pct:50/0/default.jpg";
+        final String url = iiifBaseUrl + pid + "/full/pct:50/0/default.jpg";
         HttpGet get = new HttpGet(url);
         try {
             logger.debug("[IIIF download] : " + url);
