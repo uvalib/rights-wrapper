@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Collection;
 import java.util.List;
+import java.util.Random;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLEncoder;
@@ -80,6 +81,8 @@ public class ConvertServlet extends HttpServlet {
     private String imagesPoolBaseUrl;
 
     private String buildVersion;
+
+    private final Random rand = new Random();
 
     public void init() throws ServletException {
         try {
@@ -159,6 +162,9 @@ public class ConvertServlet extends HttpServlet {
     }
 
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        final String reqId = String.format("%1$08x", rand.nextInt());
+        final String pfx = "[" + reqId + "] ";
+
         if (req.getParameter("about") != null) {
             showAbout(req, resp);
             return;
@@ -174,7 +180,7 @@ public class ConvertServlet extends HttpServlet {
             return;
         }
 
-        logger.debug("GET " + endpoint);
+        logger.debug(pfx + "GET " + endpoint);
 
         if (endpoint.equals("/healthcheck")) {
             healthcheckHandler(req, resp);
@@ -188,7 +194,8 @@ public class ConvertServlet extends HttpServlet {
 
         if (endpoint.startsWith("/api/pid/")) {
             final String pagePid = f.getName();
-            pidHandler(req, resp, pagePid);
+            pidHandler(req, resp, pagePid, pfx);
+            logger.debug(pfx + "Done!");
             return;
         }
 
@@ -241,7 +248,7 @@ public class ConvertServlet extends HttpServlet {
         resp.getOutputStream().close();
     }
 
-    private void pidHandler(HttpServletRequest req, HttpServletResponse resp, final String pagePid) throws ServletException, IOException {
+    private void pidHandler(HttpServletRequest req, HttpServletResponse resp, final String pagePid, final String pfx) throws ServletException, IOException {
         long start = System.currentTimeMillis();
 
         String referer = req.getHeader("referer");
@@ -254,19 +261,39 @@ public class ConvertServlet extends HttpServlet {
         // look up pid info for this page in tracksys
         TracksysPid tsPid;
         try {
-            tsPid = new TracksysPid(tracksysBaseUrl, pagePid);
+            tsPid = new TracksysPid(tracksysBaseUrl, pagePid, pfx);
             if (tsPid.pid.equals("")) {
-                logger.info("Pid " + pagePid + " not found in Tracksys.");
+                logger.error(pfx + "Pid " + pagePid + " not found in Tracksys.");
                 resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
             if (!tsPid.type.equals("master_file")) {
-                logger.info("Pid " + pagePid + " is not a master file.");
+                logger.error(pfx + "Pid " + pagePid + " is not a master file.");
+                resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                return;
+            }
+            if (tsPid.parentMetadataPid.equals("")) {
+                logger.error(pfx + "Pid " + pagePid + " has no parent metadata pid.");
+                resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                return;
+            }
+        } catch (Exception e) {
+            logger.error(pfx + "Exception querying Tracksys pid info for page pid:", e);
+            resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return;
+        }
+
+        // look up pid info for this page in tracksys
+        TracksysPid tsMetaPid;
+        try {
+            tsMetaPid = new TracksysPid(tracksysBaseUrl, tsPid.parentMetadataPid, pfx);
+            if (tsMetaPid.pid.equals("")) {
+                logger.error(pfx + "Metadata pid " + tsPid.parentMetadataPid + " not found in Tracksys.");
                 resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
         } catch (Exception e) {
-            logger.error("Exception querying Tracksys pid info:", e);
+            logger.error(pfx + "Exception querying Tracksys pid info for metadata pid:", e);
             resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return;
         }
@@ -274,31 +301,49 @@ public class ConvertServlet extends HttpServlet {
         // look up metadata info for this page in tracksys
         TracksysMetadata tsMeta;
         try {
-            tsMeta = new TracksysMetadata(tracksysBaseUrl, tsPid.parentMetadataPid);
+            tsMeta = new TracksysMetadata(tracksysBaseUrl, tsPid.parentMetadataPid, pfx);
             if (tsMeta.pid.equals("")) {
-                logger.info("Pid " + tsPid.parentMetadataPid + " not found in Tracksys.");
+                logger.error(pfx + "Pid " + tsPid.parentMetadataPid + " metadata not found in Tracksys.");
                 resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
         } catch (Exception e) {
-            logger.error("Exception querying Tracksys metadata info:", e);
+            logger.error(pfx + "Exception querying Tracksys metadata info:", e);
             resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return;
         }
 
-        // set up item-dependent service urls/parameters
-        String solrId;
+        // set up item-dependent solr id
+        String solrId = "";
+
+        if (tsMetaPid.type.equals("sirsi_metadata")) {
+            solrId = tsMeta.catalogKey;
+        } else if (tsMetaPid.type.equals("xml_metadata")) {
+            solrId = tsMetaPid.pid;
+        } else {
+            logger.error(pfx + "Unsupported metadata type: " + tsMetaPid.type);
+            resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
+
+        if (solrId.equals("")) {
+            logger.error(pfx + "Unable to determine solr id");
+            resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
+
+        logger.debug(pfx + "Using solr id " + solrId + " for metadata type " + tsMetaPid.type);
+
+        // set up item-dependent solr core parameters
         SolrServer solr;
         String poolBaseUrl;
 
         if (!tsMeta.catalogKey.equals("")) {
-            logger.debug("Using catalog core parameters");
-            solrId = tsMeta.catalogKey;
+            logger.debug(pfx + "Using catalog solr core parameters");
             solr = solrCatalog;
             poolBaseUrl = catalogPoolBaseUrl;
         } else {
-            logger.debug("Using images core parameters");
-            solrId = pagePid;
+            logger.debug(pfx + "Using images solr core parameters");
             solr = solrImages;
             poolBaseUrl = imagesPoolBaseUrl;
         }
@@ -307,12 +352,12 @@ public class ConvertServlet extends HttpServlet {
         try {
             final SolrDocument solrDoc = findSolrDocForId(solr, solrId);
             if (solrDoc == null) {
-                logger.info("Denied request for \"" + solrId + "\": 404 solr record not found" + referer);
+                logger.info(pfx + "Denied request for \"" + solrId + "\": 404 solr record not found" + referer);
                 resp.sendError(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
-            if (!canAccessResource(solrDoc, req)) {
-                logger.debug("Denied request for \"" + solrId + "\": unauthorized: " + referer);
+            if (!canAccessResource(solrDoc, req, pfx)) {
+                logger.debug(pfx + "Denied request for \"" + solrId + "\": unauthorized: " + referer);
                 resp.sendError(HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
@@ -326,18 +371,18 @@ public class ConvertServlet extends HttpServlet {
         // citation:
         String citation;
         try {
-            citation = getCitation(poolBaseUrl, solrId);
+            citation = getCitation(poolBaseUrl, solrId, pfx);
 
-            logger.debug("Using provided citation");
+            logger.debug(pfx + "Using provided citation");
 
             // add call number to help identify copy
             if (!tsMeta.callNumber.equals("")) {
                 citation += "\n" + tsMeta.callNumber;
             }
         } catch (Exception e) {
-            logger.error("Exception generating citation:", e);
+            logger.warn(pfx + "Exception generating citation:", e);
 
-            logger.debug("generating fallback citation");
+            logger.debug(pfx + "generating fallback citation");
 
             // emulate old style citation
             citation = "";
@@ -354,10 +399,10 @@ public class ConvertServlet extends HttpServlet {
         // rights:
         String rights;
         if (!tsMeta.rightsStatement.equals("")) {
-            logger.debug("Using provided rights statement");
+            logger.debug(pfx + "Using provided rights statement");
             rights = tsMeta.rightsStatement;
         } else {
-            logger.debug("generating fallback rights statement");
+            logger.debug(pfx + "generating fallback rights statement");
             rights = "University of Virginia Library - search.lib.virginia.edu\nUnder 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nCopyright and other legal restrictions may apply.  Commercial use without permission is prohibited.";
         }
 
@@ -371,7 +416,7 @@ public class ConvertServlet extends HttpServlet {
         try {
             fullCitation = wrapLongLines(fullCitation, 130, ',', ' ');
         } catch (Exception ex) {
-            logger.info("Unable to generate citation for " + solrId + ", will return an image without a citation.");
+            logger.info(pfx + "Unable to generate citation for " + solrId + ", will return an image without a citation.");
         }
 
         // return result (either metadata or framed image)
@@ -387,14 +432,14 @@ public class ConvertServlet extends HttpServlet {
             try {
                 FileOutputStream origOut = new FileOutputStream(orig);
                 try {
-                    downloadLargeImage(pagePid, origOut);
+                    downloadLargeImage(pagePid, origOut, pfx);
                 } catch (RuntimeException ex) {
                     if (ex.getMessage() != null && ex.getMessage().startsWith("400")) {
-                        logger.debug("Denied request for \"" + pagePid + "\": 404 unable to download image" + referer);
+                        logger.debug(pfx + "Denied request for \"" + pagePid + "\": 404 unable to download image" + referer);
                         resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
                         return;
                     } else {
-                        logger.debug("Denied request for \"" + pagePid + "\": " + ex.getMessage() + referer);
+                        logger.debug(pfx + "Denied request for \"" + pagePid + "\": " + ex.getMessage() + referer);
                         resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                         return;
                     }
@@ -402,11 +447,11 @@ public class ConvertServlet extends HttpServlet {
                     origOut.close();
                 }
                 // add the frame
-                logger.debug("[Add image frame]");
+                logger.debug(pfx + "[Add image frame]");
                 convert.addBorder(orig, framed, fullCitation);
 
                 // add the exif
-                logger.debug("[Add image exif]");
+                logger.debug(pfx + "[Add image exif]");
                 addUserComment(framed, tagged, fullCitation);
 
                 // return the content
@@ -415,9 +460,9 @@ public class ConvertServlet extends HttpServlet {
                 IOUtils.copy(new FileInputStream(tagged), resp.getOutputStream());
                 long size = orig.length();
                 long end = System.currentTimeMillis();
-                logger.info("Serviced request for \"" + pagePid + "\" (" + size + " bytes) in " + (end - start) + "ms." + referer);
+                logger.info(pfx + "Serviced request for \"" + pagePid + "\" (" + size + " bytes) in " + (end - start) + "ms." + referer);
             } catch (Exception ex) {
-                logger.warn("Denied request for \"" + pagePid + "\": " + ex.getMessage() + referer, ex);
+                logger.warn(pfx + "Denied request for \"" + pagePid + "\": " + ex.getMessage() + referer, ex);
                 resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                 return;
             } finally {
@@ -426,8 +471,6 @@ public class ConvertServlet extends HttpServlet {
                 tagged.delete();
             }
         }
-
-        logger.debug("Done!");
     }
 
     private SolrDocument findSolrDocForId(final SolrServer solr, final String id) throws SolrServerException {
@@ -449,12 +492,12 @@ public class ConvertServlet extends HttpServlet {
         private String type = "";
         private String parentMetadataPid = "";
 
-        TracksysPid(final String tracksysBaseUrl, final String pagePid) throws ClientProtocolException, IOException, ParseException, RuntimeException {
+        TracksysPid(final String tracksysBaseUrl, final String pagePid, final String pfx) throws ClientProtocolException, IOException, ParseException, RuntimeException {
             final String url = tracksysBaseUrl + "pid/" + pagePid;
 
             HttpGet get = new HttpGet(url);
             try {
-                logger.debug("[pid lookup] : " + url);
+                logger.debug(pfx + "[pid lookup] : " + url);
                 HttpResponse response = client.execute(get);
 
                 if (response.getStatusLine().getStatusCode() == 404) {
@@ -487,9 +530,9 @@ public class ConvertServlet extends HttpServlet {
                     parentMetadataPid = jsonValue.toString();
                 }
 
-                logger.debug("    pid               = [" + pid + "]");
-                logger.debug("    type              = [" + type + "]");
-                logger.debug("    parentMetadataPid = [" + parentMetadataPid + "]");
+                logger.debug(pfx + "    pid               = [" + pid + "]");
+                logger.debug(pfx + "    type              = [" + type + "]");
+                logger.debug(pfx + "    parentMetadataPid = [" + parentMetadataPid + "]");
             } finally {
                 get.releaseConnection();
             }
@@ -503,12 +546,12 @@ public class ConvertServlet extends HttpServlet {
         private String title = "";
         private String rightsStatement = "";
 
-        TracksysMetadata(final String tracksysBaseUrl, final String metadataPid) throws ClientProtocolException, IOException, ParseException, RuntimeException {
+        TracksysMetadata(final String tracksysBaseUrl, final String metadataPid, final String pfx) throws ClientProtocolException, IOException, ParseException, RuntimeException {
             final String url = tracksysBaseUrl + "metadata/" + metadataPid + "?type=brief";
 
             HttpGet get = new HttpGet(url);
             try {
-                logger.debug("[metadata lookup] : " + url);
+                logger.debug(pfx + "[metadata lookup] : " + url);
                 HttpResponse response = client.execute(get);
 
                 if (response.getStatusLine().getStatusCode() == 404) {
@@ -551,18 +594,18 @@ public class ConvertServlet extends HttpServlet {
                     rightsStatement = jsonValue.toString();
                 }
 
-                logger.debug("    pid             = [" + pid + "]");
-                logger.debug("    catalogKey      = [" + catalogKey + "]");
-                logger.debug("    callNumber      = [" + callNumber + "]");
-                logger.debug("    title           = [" + title + "]");
-                logger.debug("    rightsStatement = [" + rightsStatement + "]");
+                logger.debug(pfx + "    pid             = [" + pid + "]");
+                logger.debug(pfx + "    catalogKey      = [" + catalogKey + "]");
+                logger.debug(pfx + "    callNumber      = [" + callNumber + "]");
+                logger.debug(pfx + "    title           = [" + title + "]");
+                logger.debug(pfx + "    rightsStatement = [" + rightsStatement + "]");
             } finally {
                 get.releaseConnection();
             }
         }
     }
 
-    private String getCitation(final String poolBaseUrl, final String id) throws ClientProtocolException, IOException, URISyntaxException, RuntimeException {
+    private String getCitation(final String poolBaseUrl, final String id, final String pfx) throws ClientProtocolException, IOException, URISyntaxException, RuntimeException {
         String queryParams = "";
         queryParams += "?item=" + URLEncoder.encode(poolBaseUrl + id, StandardCharsets.UTF_8.toString());
         queryParams += "&inline=1";
@@ -572,13 +615,13 @@ public class ConvertServlet extends HttpServlet {
 
         HttpGet get = new HttpGet(url);
         try {
-            logger.debug("[Citation generation] : " + url);
+            logger.debug(pfx + "[Citation generation] : " + url);
             HttpResponse response = client.execute(get);
             if (response.getStatusLine().getStatusCode() != 200) {
                 throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
             } else {
                 String citation = EntityUtils.toString(response.getEntity());
-                logger.debug("    citation: [" + citation + "]");
+                logger.debug(pfx + "    citation: [" + citation + "]");
                 return citation;
             }
         } finally {
@@ -586,7 +629,7 @@ public class ConvertServlet extends HttpServlet {
         }
     }
 
-    private boolean canAccessResource(SolrDocument doc, HttpServletRequest request) {
+    private boolean canAccessResource(SolrDocument doc, HttpServletRequest request, final String pfx) {
         if (doc == null) {
             return false;
         }
@@ -597,7 +640,7 @@ public class ConvertServlet extends HttpServlet {
         if (policy.equals("uva")) {
             boolean allow = request.getRemoteHost().toLowerCase().endsWith(".virginia.edu");
             if (!allow) {
-                logger.debug("Denying access to \"" + request.getRemoteHost().toLowerCase() + "\" for uva-only content.");
+                logger.debug(pfx + "Denying access to \"" + request.getRemoteHost().toLowerCase() + "\" for uva-only content.");
             }
             return allow;
         } else if (policy.equals("public")) {
@@ -607,11 +650,11 @@ public class ConvertServlet extends HttpServlet {
         }
     }
 
-    private void downloadLargeImage(final String pid, OutputStream out) throws ClientProtocolException, IOException, RuntimeException {
+    private void downloadLargeImage(final String pid, OutputStream out, final String pfx) throws ClientProtocolException, IOException, RuntimeException {
         final String url = iiifBaseUrl + pid + "/full/pct:50/0/default.jpg";
         HttpGet get = new HttpGet(url);
         try {
-            logger.debug("[IIIF download] : " + url);
+            logger.debug(pfx + "[IIIF download] : " + url);
             HttpResponse response = client.execute(get);
             if (response.getStatusLine().getStatusCode() != 200) {
                 throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
