@@ -35,8 +35,8 @@ import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.filefilter.WildcardFileFilter;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.ClientProtocolException;
-import org.apache.http.client.methods.HttpRequestBase;
 import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpHead;
 import org.apache.http.client.utils.URIBuilder;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -258,24 +258,54 @@ public class ConvertServlet extends HttpServlet {
             referer = " (referer: " + referer + ")";
         }
 
+        // ensure the page pid is actually in IIIF before proceeding
+        try {
+            queryLargeImage(pagePid, pfx);
+        } catch (RuntimeException ex) {
+            String message = ex.getMessage();
+            if (message == null) {
+                message = "";
+            }
+
+            logger.debug(pfx + "IIIF image query for pid " + pagePid + " failed: " + message + referer);
+
+            if (message.startsWith("400") || message.startsWith("404")) {
+                resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            } else {
+                resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            }
+
+            return;
+        }
+
         // look up pid info for this page in tracksys
         TracksysPid tsPid;
         try {
             tsPid = new TracksysPid(tracksysBaseUrl, pagePid, pfx);
+
             if (tsPid.pid.equals("")) {
                 logger.error(pfx + "Pid " + pagePid + " not found in Tracksys.");
                 resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
-            if (!tsPid.type.equals("master_file")) {
-                logger.error(pfx + "Pid " + pagePid + " is not a master file.");
-                resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-                return;
-            }
-            if (tsPid.parentMetadataPid.equals("")) {
-                logger.error(pfx + "Pid " + pagePid + " has no parent metadata pid.");
-                resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-                return;
+
+            switch (tsPid.type) {
+                case "master_file":
+                    if (tsPid.parentMetadataPid.equals("")) {
+                        logger.error(pfx + "Pid " + pagePid + " has no parent metadata pid.");
+                        resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                        return;
+                    }
+                    break;
+
+                case "xml_metadata":
+                case "sirsi_metadata":
+                    break;
+
+                default:
+                    logger.error(pfx + "Pid " + pagePid + " has unsupported type: " + tsPid.type);
+                    resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                    return;
             }
         } catch (Exception e) {
             logger.error(pfx + "Exception querying Tracksys pid info for page pid:", e);
@@ -283,27 +313,36 @@ public class ConvertServlet extends HttpServlet {
             return;
         }
 
-        // look up pid info for this page in tracksys
+        // if not a master file, look up pid info for this page's metadata pid in tracksys
         TracksysPid tsMetaPid;
-        try {
-            tsMetaPid = new TracksysPid(tracksysBaseUrl, tsPid.parentMetadataPid, pfx);
-            if (tsMetaPid.pid.equals("")) {
-                logger.error(pfx + "Metadata pid " + tsPid.parentMetadataPid + " not found in Tracksys.");
-                resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
+        String metadataPid;
+
+        if (tsPid.parentMetadataPid.equals("")) {
+            // this is likely a pid where master file pid == metadata pid
+            metadataPid = tsPid.pid;
+            tsMetaPid = tsPid;
+        } else {
+            metadataPid = tsPid.parentMetadataPid;
+            try {
+                tsMetaPid = new TracksysPid(tracksysBaseUrl, metadataPid, pfx);
+                if (tsMetaPid.pid.equals("")) {
+                    logger.error(pfx + "Metadata pid " + metadataPid + " not found in Tracksys.");
+                    resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
+                    return;
+                }
+            } catch (Exception e) {
+                logger.error(pfx + "Exception querying Tracksys pid info for metadata pid:", e);
+                resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                 return;
             }
-        } catch (Exception e) {
-            logger.error(pfx + "Exception querying Tracksys pid info for metadata pid:", e);
-            resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-            return;
         }
 
         // look up metadata info for this page in tracksys
         TracksysMetadata tsMeta;
         try {
-            tsMeta = new TracksysMetadata(tracksysBaseUrl, tsPid.parentMetadataPid, pfx);
+            tsMeta = new TracksysMetadata(tracksysBaseUrl, metadataPid, pfx);
             if (tsMeta.pid.equals("")) {
-                logger.error(pfx + "Pid " + tsPid.parentMetadataPid + " metadata not found in Tracksys.");
+                logger.error(pfx + "Pid " + metadataPid + " metadata not found in Tracksys.");
                 resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
@@ -403,7 +442,10 @@ public class ConvertServlet extends HttpServlet {
             rights = tsMeta.rightsStatement;
         } else {
             logger.debug(pfx + "generating fallback rights statement");
-            rights = "University of Virginia Library - search.lib.virginia.edu\nUnder 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\nCopyright and other legal restrictions may apply.  Commercial use without permission is prohibited.";
+            rights = "";
+            rights += "University of Virginia Library - search.lib.virginia.edu\n";
+            rights += "Under 17USC, Section 107, this single copy was produced for the purposes of private study, scholarship, or research.\n";
+            rights += "Copyright and other legal restrictions may apply.  Commercial use without permission is prohibited.";
         }
 
         // virgo url:
@@ -650,6 +692,20 @@ public class ConvertServlet extends HttpServlet {
         }
     }
 
+    private void queryLargeImage(final String pid, final String pfx) throws ClientProtocolException, IOException, RuntimeException {
+        final String url = iiifBaseUrl + pid + "/full/pct:50/0/default.jpg";
+        HttpHead head = new HttpHead(url);
+        try {
+            logger.debug(pfx + "[IIIF query] : " + url);
+            HttpResponse response = client.execute(head);
+            if (response.getStatusLine().getStatusCode() != 200) {
+                throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from HEAD " + url + ".");
+            }
+        } finally {
+            head.releaseConnection();
+        }
+    }
+
     private void downloadLargeImage(final String pid, OutputStream out, final String pfx) throws ClientProtocolException, IOException, RuntimeException {
         final String url = iiifBaseUrl + pid + "/full/pct:50/0/default.jpg";
         HttpGet get = new HttpGet(url);
@@ -657,7 +713,7 @@ public class ConvertServlet extends HttpServlet {
             logger.debug(pfx + "[IIIF download] : " + url);
             HttpResponse response = client.execute(get);
             if (response.getStatusLine().getStatusCode() != 200) {
-                throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from " + url + ".");
+                throw new RuntimeException(response.getStatusLine().getStatusCode() + " response from GET " + url + ".");
             } else {
                 IOUtils.copy(response.getEntity().getContent(), out);
             }
