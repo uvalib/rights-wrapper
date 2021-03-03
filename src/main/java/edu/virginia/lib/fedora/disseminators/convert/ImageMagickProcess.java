@@ -8,6 +8,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.commons.io.FileUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A thin wrapper around the ImageMagick's "convert" utility.
@@ -21,6 +23,8 @@ public class ImageMagickProcess {
     private String convertCommandPath; 
 
     private String identifyCommandPath;
+
+    final Logger logger = LoggerFactory.getLogger(ImageMagickProcess.class);
 
     public static void main(String [] args) throws IOException, InterruptedException {
         ImageMagickProcess p = new ImageMagickProcess();
@@ -46,7 +50,9 @@ public class ImageMagickProcess {
     public void addBorder(File inputJpg, File outputJpg, String label) throws IOException, InterruptedException {
         // determine size
         Pattern pattern = Pattern.compile("^.* JPEG (\\d+)x(\\d+) .*\\n$");
-        Process p = new ProcessBuilder(identifyCommandPath, inputJpg.getAbsolutePath()).start();
+        ProcessBuilder pb = new ProcessBuilder(identifyCommandPath, inputJpg.getAbsolutePath());
+        logger.debug("Running command : " + pb.command().toString() );
+        Process p = pb.start();
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         Thread one = new Thread(new OutputDrainerThread(p.getInputStream(), baos));
         one.start();
@@ -73,15 +79,17 @@ public class ImageMagickProcess {
                 if (height > width) {
                     pointSize = Math.round((float) pointSize / ((float) height / (float) width));
                 }
-                p = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
+                pb = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
                         "-border", (pointSize * 2) + "x" + textBoxHeight, 
                         "-bordercolor", "lightgray", 
                         "-font", "Times-Roman", "-pointsize", String.valueOf(pointSize), 
                         "-gravity", "south", 
                         "-annotate", "+0+0+5+5", label,
-                        "-crop", (width + (pointSize * 2)) +"x" + (height + textBoxHeight + pointSize) + "+0+0", outputJpg.getAbsolutePath()).start();
+                        "-crop", (width + (pointSize * 2)) +"x" + (height + textBoxHeight + pointSize) + "+0+0", outputJpg.getAbsolutePath());
+                logger.debug("Running command : " + pb.command().toString() );
+                p = pb.start();
             } else {
-                p = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
+                pb = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
                         "-rotate", "90",
                         "-border", (pointSize * 2) + "x" + textBoxHeight, 
                         "-bordercolor", "lightgray", 
@@ -90,7 +98,9 @@ public class ImageMagickProcess {
                         "-annotate", "+0+0+5+5", label,
                         "-crop", (height + (pointSize * 2)) +"x" + (width + textBoxHeight + pointSize) + "+0+0", 
                         "-rotate", "-90",
-                        outputJpg.getAbsolutePath()).start();
+                        outputJpg.getAbsolutePath());
+                logger.debug("Running command : " + pb.command().toString() );
+                p = pb.start();
             }
             baos = new ByteArrayOutputStream();
             Thread out = new Thread(new OutputDrainerThread(p.getInputStream(), baos));
@@ -100,6 +110,7 @@ public class ImageMagickProcess {
             returnCode = p.waitFor();
             out.join();
             err.join();
+
             if (returnCode != 0) {
                 throw new RuntimeException("Invalid return code for process! (" + returnCode + ", " + baos.toString("UTF-8") + ")");
             }
