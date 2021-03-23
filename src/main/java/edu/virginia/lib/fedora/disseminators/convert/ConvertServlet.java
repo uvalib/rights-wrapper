@@ -300,6 +300,7 @@ public class ConvertServlet extends HttpServlet {
 
                 case "xml_metadata":
                 case "sirsi_metadata":
+                case "external_metadata":
                     break;
 
                 default:
@@ -359,6 +360,8 @@ public class ConvertServlet extends HttpServlet {
             solrId = tsMeta.catalogKey;
         } else if (tsMetaPid.type.equals("xml_metadata")) {
             solrId = tsMetaPid.pid;
+        } else if (tsMetaPid.type.equals("external_metadata")) {
+            solrId = tsMetaPid.pid;
         } else {
             logger.error(pfx + "Unsupported metadata type: " + tsMetaPid.type);
             resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
@@ -373,54 +376,56 @@ public class ConvertServlet extends HttpServlet {
 
         logger.debug(pfx + "Using solr id " + solrId + " for metadata type " + tsMetaPid.type);
 
-        // set up item-dependent solr core parameters
-        SolrServer solr;
-        String poolBaseUrl;
-
-        if (!tsMeta.catalogKey.equals("")) {
-            logger.debug(pfx + "Using catalog solr core parameters");
-            solr = solrCatalog;
-            poolBaseUrl = catalogPoolBaseUrl;
-        } else {
-            logger.debug(pfx + "Using images solr core parameters");
-            solr = solrImages;
-            poolBaseUrl = imagesPoolBaseUrl;
-        }
-
-        // check Solr for access policy
+        // determine which solr core this record resides in (if any), and
+        // check Solr for access policy (allow if no solr record found)
+        SolrDocument solrDoc = null;
+        String poolBaseUrl = "";
         try {
-            final SolrDocument solrDoc = findSolrDocForId(solr, solrId);
-            if (solrDoc == null) {
-                logger.info(pfx + "Denied request for \"" + solrId + "\": 404 solr record not found" + referer);
-                resp.sendError(HttpServletResponse.SC_NOT_FOUND);
-                return;
-            }
-            if (!canAccessResource(solrDoc, req, pfx)) {
-                logger.debug(pfx + "Denied request for \"" + solrId + "\": unauthorized: " + referer);
-                resp.sendError(HttpServletResponse.SC_FORBIDDEN);
-                return;
+            solrDoc = findSolrDocForId(solrCatalog, solrId);
+            if (solrDoc != null) {
+                logger.debug(pfx + "Found record in catalog solr core");
+                poolBaseUrl = catalogPoolBaseUrl;
+            } else {
+                solrDoc = findSolrDocForId(solrImages, solrId);
+                if (solrDoc != null) {
+                    logger.debug(pfx + "Found record in images solr core");
+                    poolBaseUrl = imagesPoolBaseUrl;
+                } else {
+                    logger.debug(pfx + "Item not found in any solr core");
+                }
             }
         } catch (SolrServerException e) {
             // let request through
             // TODO: maybe check rights-ws as a fallback?
         }
 
+        if (solrDoc != null && !canAccessResource(solrDoc, req, pfx)) {
+            logger.debug(pfx + "Denied request for \"" + solrId + "\": unauthorized: " + referer);
+            resp.sendError(HttpServletResponse.SC_FORBIDDEN);
+            return;
+        }
+
         // build full citation from MLA citation plus rights info
 
         // citation:
-        String citation;
-        try {
-            citation = getCitation(poolBaseUrl, solrId, pfx);
+        String citation = "";
 
-            logger.debug(pfx + "Using provided citation");
+        if (!poolBaseUrl.equals("")) {
+            try {
+                citation = getCitation(poolBaseUrl, solrId, pfx);
 
-            // add call number to help identify copy
-            if (!tsMeta.callNumber.equals("")) {
-                citation += "\n" + tsMeta.callNumber;
+                logger.debug(pfx + "Using provided citation");
+
+                // add call number to help identify copy
+                if (!tsMeta.callNumber.equals("")) {
+                    citation += "\n" + tsMeta.callNumber;
+                }
+            } catch (Exception e) {
+                logger.warn(pfx + "Exception generating citation:", e);
             }
-        } catch (Exception e) {
-            logger.warn(pfx + "Exception generating citation:", e);
+        }
 
+        if (citation.equals("")) {
             logger.debug(pfx + "generating fallback citation");
 
             // emulate old style citation
@@ -448,15 +453,18 @@ public class ConvertServlet extends HttpServlet {
             rights += "Copyright and other legal restrictions may apply.  Commercial use without permission is prohibited.";
         }
 
-        // virgo url:
-        String virgoUrl = virgoBaseUrl + solrId;
-
         // put it all together...
-        String fullCitation = citation + "\n" + virgoUrl + "\n\n" + rights;
+        String fullCitation = citation;
+
+        if (solrDoc != null) {
+            fullCitation += "\n" + virgoBaseUrl + solrId;
+        }
+
+        fullCitation += "\n\n" + rights;
 
         // format the citation
         try {
-            fullCitation = wrapLongLines(fullCitation, 130, ',', ' ');
+            fullCitation = wrapLongLines(fullCitation, 125, ',', ' ');
         } catch (Exception ex) {
             logger.info(pfx + "Unable to generate citation for " + solrId + ", will return an image without a citation.");
         }
