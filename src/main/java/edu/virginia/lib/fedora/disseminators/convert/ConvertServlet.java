@@ -258,6 +258,9 @@ public class ConvertServlet extends HttpServlet {
             referer = " (referer: " + referer + ")";
         }
 
+        // will be checked if set, not for value
+        String download = req.getParameter("download");
+
         // ensure the page pid is actually in IIIF before proceeding
         try {
             queryLargeImage(pagePid, pfx);
@@ -466,7 +469,7 @@ public class ConvertServlet extends HttpServlet {
         try {
             fullCitation = wrapLongLines(fullCitation, 125, ',', ' ');
         } catch (Exception ex) {
-            logger.info(pfx + "Unable to generate citation for " + solrId + ", will return an image without a citation.");
+            logger.info(pfx + "Unable to generate citation for " + tsMetaPid.pid + ", will return an image without a citation.");
         }
 
         // return result (either metadata or framed image)
@@ -476,9 +479,9 @@ public class ConvertServlet extends HttpServlet {
             resp.getOutputStream().write((fullCitation).getBytes("UTF-8"));
             resp.getOutputStream().close();
         } else {
-            File orig = File.createTempFile(solrId + "-orig-", ".jpg");
-            File framed = File.createTempFile(solrId + "-wrapped-", ".jpg");
-            File tagged = File.createTempFile(solrId + "-wrapped-tagged-", ".jpg");
+            File orig = File.createTempFile(tsMetaPid.pid + "-orig-", ".jpg");
+            File framed = File.createTempFile(tsMetaPid.pid + "-wrapped-", ".jpg");
+            File tagged = File.createTempFile(tsMetaPid.pid + "-wrapped-tagged-", ".jpg");
             try {
                 FileOutputStream origOut = new FileOutputStream(orig);
                 try {
@@ -505,6 +508,11 @@ public class ConvertServlet extends HttpServlet {
                 addUserComment(framed, tagged, fullCitation);
 
                 // return the content
+
+                if (download != null) {
+                    resp.setHeader("Content-Disposition", "attachment; filename=" + tsMetaPid.pid + ".jpg");
+                }
+
                 resp.setContentType("image/jpeg");
                 resp.setStatus(HttpServletResponse.SC_OK);
                 IOUtils.copy(new FileInputStream(tagged), resp.getOutputStream());
