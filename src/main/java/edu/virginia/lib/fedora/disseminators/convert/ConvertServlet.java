@@ -518,7 +518,7 @@ public class ConvertServlet extends HttpServlet {
                 IOUtils.copy(new FileInputStream(tagged), resp.getOutputStream());
                 long size = orig.length();
                 long end = System.currentTimeMillis();
-                logger.info(pfx + "Serviced request for \"" + pagePid + "\" (" + size + " bytes) in " + (end - start) + "ms." + referer);
+                logger.info(pfx + "Serviced request for \"" + pagePid + "\" (" + size + " bytes) in " + (end - start) + " ms." + referer);
             } catch (Exception ex) {
                 logger.warn(pfx + "Denied request for \"" + pagePid + "\": " + ex.getMessage() + referer, ex);
                 resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
