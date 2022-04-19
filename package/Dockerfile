@@ -1,5 +1,5 @@
 # builder
-FROM openjdk:8 as builder
+FROM public.ecr.aws/docker/library/openjdk:8-jdk as builder
 
 # update and install dependancies
 RUN apt-get -y update && apt-get -y install maven
@@ -17,13 +17,13 @@ RUN mvn install:install-file -Dfile=/build/lib/commons-imaging-1.0-20160119.0729
 RUN mvn clean package
 
 # base image
-FROM jetty:9.4.9-jre8-alpine
+FROM public.ecr.aws/docker/library/jetty:9.4.46-jre8-slim
 
 # so we can install new packages
 USER root
 
 # install updates and dependancies
-RUN apk update && apk add imagemagick ghostscript-fonts
+RUN apt-get -y update && apt-get -y upgrade && apt-get -y install imagemagick gsfonts
 
 # the default user for this base image
 USER jetty
