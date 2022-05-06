@@ -47,6 +47,54 @@ public class ImageMagickProcess {
         convertCommandPath = path;
     }
 
+    public void imDebugVersion() throws IOException, InterruptedException {
+        ProcessBuilder pb = new ProcessBuilder(identifyCommandPath, "-version");
+        logger.debug("imDebugVersion(): Running command : " + pb.command().toString() );
+        Process p = pb.start();
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        Thread out = new Thread(new OutputDrainerThread(p.getInputStream(), baos));
+        out.start();
+        Thread err = new Thread(new OutputDrainerThread(p.getErrorStream(), baos));
+        err.start();
+        int returnCode = p.waitFor();
+        out.join();
+        err.join();
+
+        final String debugOutput = baos.toString("UTF-8");
+
+        logger.debug("imDebugVersion(): output: " + "\n\n" + debugOutput);
+
+        if (returnCode != 0) {
+            throw new RuntimeException("Invalid return code for process!");
+        }
+    }
+
+    public void imDebugFont(float pointSize) throws IOException, InterruptedException {
+        imDebugVersion();
+
+        ProcessBuilder pb = new ProcessBuilder(convertCommandPath, "-debug", "annotate", "xc:", "-font", "Times-Roman", "-pointsize", String.valueOf(pointSize), "-annotate", "0", "X", "null:");
+        logger.debug("imDebugFont(): Running command : " + pb.command().toString() );
+        Process p = pb.start();
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        Thread out = new Thread(new OutputDrainerThread(p.getInputStream(), baos));
+        out.start();
+        Thread err = new Thread(new OutputDrainerThread(p.getErrorStream(), baos));
+        err.start();
+        int returnCode = p.waitFor();
+        out.join();
+        err.join();
+
+        final String debugOutput = baos.toString("UTF-8");
+
+        logger.debug("imDebugFont(): output: " + "\n\n" + debugOutput);
+
+        if (returnCode != 0) {
+            throw new RuntimeException("Invalid return code for process!");
+        }
+    }
+
     public void addBorder(File inputJpg, File outputJpg, String label) throws IOException, InterruptedException {
         // determine size
         Pattern pattern = Pattern.compile("^.* JPEG (\\d+)x(\\d+) .*\\n$");
@@ -60,7 +108,7 @@ public class ImageMagickProcess {
         int returnCode = p.waitFor();
         one.join();
         final String identifyOutput = baos.toString("UTF-8");
-        
+
         if (returnCode != 0) {
             throw new RuntimeException("Invalid return code for process!");
         }
@@ -73,12 +121,15 @@ public class ImageMagickProcess {
             label = label + "\n";
 
             int pointSize = (int) ((float) (width>height ? width : height) * 0.02f);
+            logger.debug("pointSize 1: " + String.valueOf(pointSize));
             int textBoxHeight = (pointSize * (linesOfText + 1));
 
             if ((width * 1.5) > height) {
                 if (height > width) {
                     pointSize = Math.round((float) pointSize / ((float) height / (float) width));
+                    logger.debug("pointSize 2: " + String.valueOf(pointSize));
                 }
+                imDebugFont(pointSize);
                 pb = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
                         "-border", (pointSize * 2) + "x" + textBoxHeight, 
                         "-bordercolor", "lightgray", 
@@ -89,6 +140,7 @@ public class ImageMagickProcess {
                 logger.debug("Running command : " + pb.command().toString() );
                 p = pb.start();
             } else {
+                imDebugFont(pointSize);
                 pb = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
                         "-rotate", "90",
                         "-border", (pointSize * 2) + "x" + textBoxHeight, 
