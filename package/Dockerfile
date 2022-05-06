@@ -23,7 +23,7 @@ FROM public.ecr.aws/docker/library/jetty:9.4.46-jre8-slim
 USER root
 
 # install updates and dependancies
-RUN apt-get -y update && apt-get -y upgrade && apt-get -y install imagemagick gsfonts
+RUN apt-get -y update && apt-get -y upgrade && apt-get -y install imagemagick gsfonts ttf-mscorefonts-installer
 
 # the default user for this base image
 USER jetty
