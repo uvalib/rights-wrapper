@@ -26,7 +26,9 @@ USER root
 RUN sed -i -e 's/^\(deb .*\)$/\1 contrib/g' -e '{:loop; s/\(.*\)\( contrib\)\(.*\)\( contrib\)\(.*\)/\1\2\3\5/g; t loop}' /etc/apt/sources.list \
     && apt-get -y update \
     && apt-get -y upgrade \
-    && apt-get -y install imagemagick gsfonts ttf-mscorefonts-installer
+    && apt-get -y purge fonts-urw-base35 \
+    && apt-get -y autoremove \
+    && apt-get -y install imagemagick ttf-mscorefonts-installer
 
 # the default user for this base image
 USER jetty
