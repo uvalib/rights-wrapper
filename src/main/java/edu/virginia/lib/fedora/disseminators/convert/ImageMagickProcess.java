@@ -47,9 +47,9 @@ public class ImageMagickProcess {
         convertCommandPath = path;
     }
 
-    public void imDebugVersion() throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder(identifyCommandPath, "-version");
-        logger.debug("imDebugVersion(): Running command : " + pb.command().toString() );
+    public void imDebugCommand(String ... args) throws IOException, InterruptedException {
+        ProcessBuilder pb = new ProcessBuilder(args);
+        logger.debug("imDebugCommand(): Running command : " + pb.command().toString() );
         Process p = pb.start();
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -63,7 +63,7 @@ public class ImageMagickProcess {
 
         final String debugOutput = baos.toString("UTF-8");
 
-        logger.debug("imDebugVersion(): output: " + "\n\n" + debugOutput);
+        logger.debug("imDebugCommand(): output: " + "\n\n" + debugOutput + "\n\n");
 
         if (returnCode != 0) {
             throw new RuntimeException("Invalid return code for process!");
@@ -71,28 +71,9 @@ public class ImageMagickProcess {
     }
 
     public void imDebugFont(float pointSize) throws IOException, InterruptedException {
-        imDebugVersion();
-
-        ProcessBuilder pb = new ProcessBuilder(convertCommandPath, "-debug", "annotate", "xc:", "-font", "Times-Roman", "-pointsize", String.valueOf(pointSize), "-annotate", "0", "X", "null:");
-        logger.debug("imDebugFont(): Running command : " + pb.command().toString() );
-        Process p = pb.start();
-
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        Thread out = new Thread(new OutputDrainerThread(p.getInputStream(), baos));
-        out.start();
-        Thread err = new Thread(new OutputDrainerThread(p.getErrorStream(), baos));
-        err.start();
-        int returnCode = p.waitFor();
-        out.join();
-        err.join();
-
-        final String debugOutput = baos.toString("UTF-8");
-
-        logger.debug("imDebugFont(): output: " + "\n\n" + debugOutput);
-
-        if (returnCode != 0) {
-            throw new RuntimeException("Invalid return code for process!");
-        }
+        imDebugCommand(identifyCommandPath, "-version");
+        imDebugCommand(convertCommandPath, "-list", "font");
+        imDebugCommand(convertCommandPath, "-debug", "annotate", "xc:", "-font", "Times-Roman", "-pointsize", String.valueOf(pointSize), "-annotate", "0", "X", "null:");
     }
 
     public void addBorder(File inputJpg, File outputJpg, String label) throws IOException, InterruptedException {
