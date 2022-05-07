@@ -49,12 +49,12 @@ public class ImageMagickProcess {
         convertCommandPath = path;
     }
 
-    public int getTextHeightForTextWithFontAtPointSize(String text, String font, int pointSize) throws IOException, InterruptedException {
+    private int getTextHeightForTextWithFontAtPointSize(String text, String font, int pointSize) throws IOException, InterruptedException {
         // determine height of multi-line text given a font at a specific
         // point size by parsing imagemagick debug output
         Pattern pattern = Pattern.compile("^.*Metrics:.* height: (\\d+); .*$", Pattern.MULTILINE);
         ProcessBuilder pb = new ProcessBuilder(convertCommandPath, "-debug", "annotate", "xc:", "-font", font, "-pointsize", String.valueOf(pointSize), "-annotate", "0", text, "null:");
-        logger.debug("Running command : " + pb.command().toString() );
+        //logger.debug("Running command : " + pb.command().toString() );
         Process p = pb.start();
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ByteArrayOutputStream baes = new ByteArrayOutputStream();
@@ -74,8 +74,8 @@ public class ImageMagickProcess {
             throw new RuntimeException("Invalid return code for process!");
         }
 
-        logger.debug("convertOutput: " + "\n" + convertOutput);
-        logger.debug("convertError: " + "\n" + convertError);
+        //logger.debug("convertOutput: " + "\n" + convertOutput);
+        //logger.debug("convertError: " + "\n" + convertError);
 
         Matcher m = pattern.matcher(convertError);
 
@@ -95,12 +95,12 @@ public class ImageMagickProcess {
                 maxHeight = h;
             }
 
-            logger.debug("added line height " + h + "; total height now " + height);
+            //logger.debug("added line height " + h + "; total height now " + height);
         }
 
         if (lines > 0) {
             height += lines * maxHeight;
-            logger.debug("added " + lines + " lines worth of empty text using max line height of " + maxHeight + "; total height now " + height);
+            //logger.debug("added " + lines + " lines worth of empty text using max line height of " + maxHeight + "; total height now " + height);
         }
 
         return height;
