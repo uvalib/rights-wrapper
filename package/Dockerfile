@@ -22,13 +22,8 @@ FROM public.ecr.aws/docker/library/jetty:9.4.46-jre8-slim
 # so we can install new packages
 USER root
 
-# install updates and dependancies, adding contrib repo to pick up microsoft fonts installer
-RUN sed -i -e 's/^\(deb .*\)$/\1 contrib/g' -e '{:loop; s/\(.*\)\( contrib\)\(.*\)\( contrib\)\(.*\)/\1\2\3\5/g; t loop}' /etc/apt/sources.list \
-    && apt-get -y update \
-    && apt-get -y upgrade \
-    && apt-get -y purge fonts-urw-base35 \
-    && apt-get -y autoremove \
-    && apt-get -y install imagemagick ttf-mscorefonts-installer
+# install updates and dependancies
+RUN apt-get -y update && apt-get -y upgrade && apt-get -y install imagemagick
 
 # the default user for this base image
 USER jetty

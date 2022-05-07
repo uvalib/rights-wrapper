@@ -24,6 +24,8 @@ public class ImageMagickProcess {
 
     private String identifyCommandPath;
 
+    private String font = "Times-Roman";
+
     final Logger logger = LoggerFactory.getLogger(ImageMagickProcess.class);
 
     public static void main(String [] args) throws IOException, InterruptedException {
@@ -47,33 +49,61 @@ public class ImageMagickProcess {
         convertCommandPath = path;
     }
 
-    public void imDebugCommand(String ... args) throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder(args);
-        logger.debug("imDebugCommand(): Running command : " + pb.command().toString() );
+    public int getTextHeightForTextWithFontAtPointSize(String text, String font, int pointSize) throws IOException, InterruptedException {
+        // determine height of multi-line text given a font at a specific
+        // point size by parsing imagemagick debug output
+        Pattern pattern = Pattern.compile("^.*Metrics:.* height: (\\d+); .*$", Pattern.MULTILINE);
+        ProcessBuilder pb = new ProcessBuilder(convertCommandPath, "-debug", "annotate", "xc:", "-font", font, "-pointsize", String.valueOf(pointSize), "-annotate", "0", text, "null:");
+        logger.debug("Running command : " + pb.command().toString() );
         Process p = pb.start();
-
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ByteArrayOutputStream baes = new ByteArrayOutputStream();
+
         Thread out = new Thread(new OutputDrainerThread(p.getInputStream(), baos));
         out.start();
-        Thread err = new Thread(new OutputDrainerThread(p.getErrorStream(), baos));
+        Thread err = new Thread(new OutputDrainerThread(p.getErrorStream(), baes));
         err.start();
         int returnCode = p.waitFor();
         out.join();
         err.join();
 
-        final String debugOutput = baos.toString("UTF-8");
-
-        logger.debug("imDebugCommand(): output: " + "\n\n" + debugOutput + "\n\n");
+        final String convertOutput = baos.toString("UTF-8");
+        final String convertError = baes.toString("UTF-8");
 
         if (returnCode != 0) {
             throw new RuntimeException("Invalid return code for process!");
         }
-    }
 
-    public void imDebugFont(float pointSize) throws IOException, InterruptedException {
-        imDebugCommand(identifyCommandPath, "-version");
-        imDebugCommand(convertCommandPath, "-list", "font");
-        imDebugCommand(convertCommandPath, "-debug", "annotate", "xc:", "-font", "Times-Roman", "-pointsize", String.valueOf(pointSize), "-annotate", "0", "X", "null:");
+        logger.debug("convertOutput: " + "\n" + convertOutput);
+        logger.debug("convertError: " + "\n" + convertError);
+
+        Matcher m = pattern.matcher(convertError);
+
+        int height = 0;
+        int maxHeight = pointSize;
+
+        // imagemagick will only show font metrics for lines with text.
+        // track the number of lines expected vs. how many imagemagick found,
+        // so we can adjust the final total.
+        int lines = text.split("\\n").length;
+
+        while (m.find()) {
+            int h = Integer.parseInt(m.group(1));
+            height += h;
+            lines--;
+            if (h > maxHeight) {
+                maxHeight = h;
+            }
+
+            logger.debug("added line height " + h + "; total height now " + height);
+        }
+
+        if (lines > 0) {
+            height += lines * maxHeight;
+            logger.debug("added " + lines + " lines worth of empty text using max line height of " + maxHeight + "; total height now " + height);
+        }
+
+        return height;
     }
 
     public void addBorder(File inputJpg, File outputJpg, String label) throws IOException, InterruptedException {
@@ -102,31 +132,28 @@ public class ImageMagickProcess {
             label = label + "\n";
 
             int pointSize = (int) ((float) (width>height ? width : height) * 0.02f);
-            logger.debug("pointSize 1: " + String.valueOf(pointSize));
-            int textBoxHeight = (pointSize * (linesOfText + 1));
+            int textBoxHeight = getTextHeightForTextWithFontAtPointSize(label, font, pointSize) + (pointSize * 2);
 
             if ((width * 1.5) > height) {
                 if (height > width) {
                     pointSize = Math.round((float) pointSize / ((float) height / (float) width));
-                    logger.debug("pointSize 2: " + String.valueOf(pointSize));
+                    textBoxHeight = getTextHeightForTextWithFontAtPointSize(label, font, pointSize) + (pointSize * 2);
                 }
-                imDebugFont(pointSize);
                 pb = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
                         "-border", (pointSize * 2) + "x" + textBoxHeight, 
                         "-bordercolor", "lightgray", 
-                        "-font", "Times-Roman", "-pointsize", String.valueOf(pointSize), 
+                        "-font", font, "-pointsize", String.valueOf(pointSize), 
                         "-gravity", "south", 
                         "-annotate", "+0+0+5+5", label,
                         "-crop", (width + (pointSize * 2)) +"x" + (height + textBoxHeight + pointSize) + "+0+0", outputJpg.getAbsolutePath());
                 logger.debug("Running command : " + pb.command().toString() );
                 p = pb.start();
             } else {
-                imDebugFont(pointSize);
                 pb = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
                         "-rotate", "90",
                         "-border", (pointSize * 2) + "x" + textBoxHeight, 
                         "-bordercolor", "lightgray", 
-                        "-font", "Times-Roman", "-pointsize", String.valueOf(pointSize), 
+                        "-font", font, "-pointsize", String.valueOf(pointSize), 
                         "-gravity", "south", 
                         "-annotate", "+0+0+5+5", label,
                         "-crop", (height + (pointSize * 2)) +"x" + (width + textBoxHeight + pointSize) + "+0+0", 
