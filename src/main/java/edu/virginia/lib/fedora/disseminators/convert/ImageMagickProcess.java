@@ -49,7 +49,7 @@ public class ImageMagickProcess {
         convertCommandPath = path;
     }
 
-    private int getTextHeightForTextWithFontAtPointSize(String text, String font, int pointSize) throws IOException, InterruptedException {
+    private int getTextHeightForTextWithFontAtPointSizeViaFontMetrics(String text, String font, int pointSize) throws IOException, InterruptedException {
         // determine height of multi-line text given a font at a specific
         // point size by parsing imagemagick debug output
         Pattern pattern = Pattern.compile("^.*Metrics:.* height: (\\d+); .*$", Pattern.MULTILINE);
@@ -71,6 +71,9 @@ public class ImageMagickProcess {
         final String convertError = baes.toString("UTF-8");
 
         if (returnCode != 0) {
+            logger.debug("return code: " + returnCode);
+            logger.debug("command out: " + convertOutput + "\n");
+            logger.debug("command err: " + convertError + "\n");
             throw new RuntimeException("Invalid return code for process!");
         }
 
@@ -103,6 +106,49 @@ public class ImageMagickProcess {
             //logger.debug("added " + lines + " lines worth of empty text using max line height of " + maxHeight + "; total height now " + height);
         }
 
+        logger.debug("height: " + height);
+
+        return height;
+    }
+
+    private int getTextHeightForTextWithFontAtPointSize(String text, String font, int pointSize) throws IOException, InterruptedException {
+        // determine height of multi-line text given a font at a specific
+        // point size by creating a label and reading its height.
+        // this label should be practically the same height as the annotation
+        // created below, give or take a couple pixels (and is faster to generate).
+        ProcessBuilder pb = new ProcessBuilder(convertCommandPath, "-font", font, "-pointsize", String.valueOf(pointSize), "label:" + text, "-trim", "-format", "%h", "info:");
+        logger.debug("Running command : " + pb.command().toString() );
+        Process p = pb.start();
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ByteArrayOutputStream baes = new ByteArrayOutputStream();
+
+        Thread out = new Thread(new OutputDrainerThread(p.getInputStream(), baos));
+        out.start();
+        Thread err = new Thread(new OutputDrainerThread(p.getErrorStream(), baes));
+        err.start();
+        int returnCode = p.waitFor();
+        out.join();
+        err.join();
+
+        final String convertOutput = baos.toString("UTF-8");
+        final String convertError = baes.toString("UTF-8");
+
+        if (returnCode != 0) {
+            logger.debug("return code: " + returnCode);
+            logger.debug("command out: " + convertOutput + "\n");
+            logger.debug("command err: " + convertError + "\n");
+            throw new RuntimeException("Invalid return code for process!");
+        }
+
+        int height = Integer.parseInt(convertOutput);
+        logger.debug("height: " + height);
+
+        // if height is suspect, fall back to metrics?
+        if (height <= 0) {
+          logger.warn("falling back to font metrics debug output parsing");
+          height = getTextHeightForTextWithFontAtPointSizeViaFontMetrics(text, font, pointSize);
+        }
+
         return height;
     }
 
@@ -121,6 +167,8 @@ public class ImageMagickProcess {
         final String identifyOutput = baos.toString("UTF-8");
 
         if (returnCode != 0) {
+            logger.debug("return code: " + returnCode);
+            logger.debug("command out: " + identifyOutput + "\n");
             throw new RuntimeException("Invalid return code for process!");
         }
         Matcher m = pattern.matcher(identifyOutput);
@@ -172,6 +220,8 @@ public class ImageMagickProcess {
             err.join();
 
             if (returnCode != 0) {
+                logger.debug("return code: " + returnCode);
+                logger.debug("command out: " + baos.toString("UTF-8") + "\n");
                 throw new RuntimeException("Invalid return code for process! (" + returnCode + ", " + baos.toString("UTF-8") + ")");
             }
         } else {
