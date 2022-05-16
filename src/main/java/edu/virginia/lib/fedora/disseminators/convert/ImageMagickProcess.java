@@ -144,12 +144,12 @@ public class ImageMagickProcess {
     }
 
     private int getTextHeightForTextWithFontAtPointSize(String text, String font, int pointSize) throws IOException, InterruptedException {
-        //imDebugInfo();
+        imDebugInfo();
         // determine height of multi-line text given a font at a specific
         // point size by creating a label and reading its height.
         // this label should be practically the same height as the annotation
         // created below, give or take a couple pixels (and is faster to generate).
-        ProcessBuilder pb = new ProcessBuilder(convertCommandPath, "-limit", "height", "10MP", "-limit", "width", "10MP", "-font", font, "-pointsize", String.valueOf(pointSize), "label:" + text, "-trim", "-format", "%h", "info:");
+        ProcessBuilder pb = new ProcessBuilder(convertCommandPath, "-font", font, "-pointsize", String.valueOf(pointSize), "label:" + text, "-trim", "-format", "%h", "info:");
         logger.debug("Running command : " + pb.command().toString() );
         Process p = pb.start();
         ByteArrayOutputStream baos = new ByteArrayOutputStream();

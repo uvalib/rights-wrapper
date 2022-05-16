@@ -25,6 +25,9 @@ USER root
 # install updates and dependancies
 RUN apt-get -y update && apt-get -y upgrade && apt-get -y install imagemagick
 
+# disable imagemagick policies
+RUN mv -f /etc/ImageMagick*/policy.{xml,bak}
+
 # the default user for this base image
 USER jetty
 
