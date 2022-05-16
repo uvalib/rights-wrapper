@@ -49,6 +49,38 @@ public class ImageMagickProcess {
         convertCommandPath = path;
     }
 
+    private void imGenericCommand(String ... args) throws IOException, InterruptedException {
+        ProcessBuilder pb = new ProcessBuilder(args);
+        logger.debug("Running command : " + pb.command().toString() );
+        Process p = pb.start();
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ByteArrayOutputStream baes = new ByteArrayOutputStream();
+
+        Thread out = new Thread(new OutputDrainerThread(p.getInputStream(), baos));
+        out.start();
+        Thread err = new Thread(new OutputDrainerThread(p.getErrorStream(), baes));
+        err.start();
+        int returnCode = p.waitFor();
+        out.join();
+        err.join();
+
+        final String commandOutput = baos.toString("UTF-8");
+        final String commandError = baes.toString("UTF-8");
+
+        logger.debug("return code: " + returnCode);
+        logger.debug("command out: " + "\n" + commandOutput + "\n");
+        logger.debug("command err: " + "\n" + commandError + "\n");
+    }
+
+    private void imDebugInfo() throws IOException, InterruptedException {
+        imGenericCommand(convertCommandPath, "-version");
+        imGenericCommand(convertCommandPath, "-list", "resource");
+        imGenericCommand(convertCommandPath, "-list", "policy");
+        imGenericCommand(convertCommandPath, "-list", "configure");
+        imGenericCommand(convertCommandPath, "-list", "delegate");
+        //imGenericCommand(convertCommandPath, "-list", "font");
+    }
+
     private int getTextHeightForTextWithFontAtPointSizeViaFontMetrics(String text, String font, int pointSize) throws IOException, InterruptedException {
         // determine height of multi-line text given a font at a specific
         // point size by parsing imagemagick debug output
@@ -72,8 +104,8 @@ public class ImageMagickProcess {
 
         if (returnCode != 0) {
             logger.debug("return code: " + returnCode);
-            logger.debug("command out: " + convertOutput + "\n");
-            logger.debug("command err: " + convertError + "\n");
+            logger.debug("command out: " + "\n" + convertOutput + "\n");
+            logger.debug("command err: " + "\n" + convertError + "\n");
             throw new RuntimeException("Invalid return code for process!");
         }
 
@@ -112,6 +144,7 @@ public class ImageMagickProcess {
     }
 
     private int getTextHeightForTextWithFontAtPointSize(String text, String font, int pointSize) throws IOException, InterruptedException {
+        imDebugInfo();
         // determine height of multi-line text given a font at a specific
         // point size by creating a label and reading its height.
         // this label should be practically the same height as the annotation
@@ -135,9 +168,10 @@ public class ImageMagickProcess {
 
         if (returnCode != 0) {
             logger.debug("return code: " + returnCode);
-            logger.debug("command out: " + convertOutput + "\n");
-            logger.debug("command err: " + convertError + "\n");
-            throw new RuntimeException("Invalid return code for process!");
+            logger.debug("command out: " + "\n" + convertOutput + "\n");
+            logger.debug("command err: " + "\n" + convertError + "\n");
+            logger.warn("falling back to font metrics debug output parsing");
+            return getTextHeightForTextWithFontAtPointSizeViaFontMetrics(text, font, pointSize);
         }
 
         int height = Integer.parseInt(convertOutput);
@@ -145,8 +179,8 @@ public class ImageMagickProcess {
 
         // if height is suspect, fall back to metrics?
         if (height <= 0) {
-          logger.warn("falling back to font metrics debug output parsing");
-          height = getTextHeightForTextWithFontAtPointSizeViaFontMetrics(text, font, pointSize);
+            logger.warn("falling back to font metrics debug output parsing");
+            return getTextHeightForTextWithFontAtPointSizeViaFontMetrics(text, font, pointSize);
         }
 
         return height;
@@ -168,7 +202,7 @@ public class ImageMagickProcess {
 
         if (returnCode != 0) {
             logger.debug("return code: " + returnCode);
-            logger.debug("command out: " + identifyOutput + "\n");
+            logger.debug("command out: " + "\n" + identifyOutput + "\n");
             throw new RuntimeException("Invalid return code for process!");
         }
         Matcher m = pattern.matcher(identifyOutput);
@@ -221,7 +255,7 @@ public class ImageMagickProcess {
 
             if (returnCode != 0) {
                 logger.debug("return code: " + returnCode);
-                logger.debug("command out: " + baos.toString("UTF-8") + "\n");
+                logger.debug("command out: " + "\n" + baos.toString("UTF-8") + "\n");
                 throw new RuntimeException("Invalid return code for process! (" + returnCode + ", " + baos.toString("UTF-8") + ")");
             }
         } else {
