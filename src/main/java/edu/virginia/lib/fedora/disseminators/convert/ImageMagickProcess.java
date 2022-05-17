@@ -30,7 +30,7 @@ public class ImageMagickProcess {
 
     public static void main(String [] args) throws IOException, InterruptedException {
         ImageMagickProcess p = new ImageMagickProcess();
-        p.addBorder(new File(args[0]), new File(args[1]), args[2]);
+        p.addBorder("", new File(args[0]), new File(args[1]), args[2]);
     }
 
     public ImageMagickProcess() throws IOException {
@@ -50,9 +50,9 @@ public class ImageMagickProcess {
     }
 
 /*
-    private void imGenericCommand(String ... args) throws IOException, InterruptedException {
+    private void imGenericCommand(String pfx, String ... args) throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder(args);
-        logger.debug("Running command : " + pb.command().toString() );
+        logger.debug(pfx + "Running command : " + pb.command().toString() );
         Process p = pb.start();
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ByteArrayOutputStream baes = new ByteArrayOutputStream();
@@ -68,27 +68,27 @@ public class ImageMagickProcess {
         final String commandOutput = baos.toString("UTF-8");
         final String commandError = baes.toString("UTF-8");
 
-        logger.debug("return code: " + returnCode);
-        logger.debug("command out: " + "\n" + commandOutput + "\n");
-        logger.debug("command err: " + "\n" + commandError + "\n");
+        logger.debug(pfx + "return code: " + returnCode);
+        logger.debug(pfx + "command out: " + "\n" + commandOutput + "\n");
+        logger.debug(pfx + "command err: " + "\n" + commandError + "\n");
     }
 
-    private void imDebugInfo() throws IOException, InterruptedException {
-        imGenericCommand(convertCommandPath, "-version");
-        imGenericCommand(convertCommandPath, "-list", "resource");
-        imGenericCommand(convertCommandPath, "-list", "policy");
-        imGenericCommand(convertCommandPath, "-list", "configure");
-        imGenericCommand(convertCommandPath, "-list", "delegate");
-        //imGenericCommand(convertCommandPath, "-list", "font");
+    private void imDebugInfo(String pfx) throws IOException, InterruptedException {
+        imGenericCommand(pfx, convertCommandPath, "-version");
+        imGenericCommand(pfx, convertCommandPath, "-list", "resource");
+        imGenericCommand(pfx, convertCommandPath, "-list", "policy");
+        imGenericCommand(pfx, convertCommandPath, "-list", "configure");
+        imGenericCommand(pfx, convertCommandPath, "-list", "delegate");
+        //imGenericCommand(pfx, convertCommandPath, "-list", "font");
     }
 */
 
-    private int getTextHeightForTextWithFontAtPointSizeViaFontMetrics(String text, String font, int pointSize) throws IOException, InterruptedException {
+    private int getTextHeightForTextWithFontAtPointSizeViaFontMetrics(String pfx, String text, String font, int pointSize) throws IOException, InterruptedException {
         // determine height of multi-line text given a font at a specific
         // point size by parsing imagemagick debug output
         Pattern pattern = Pattern.compile("^.*Metrics:.* height: (\\d+); .*$", Pattern.MULTILINE);
         ProcessBuilder pb = new ProcessBuilder(convertCommandPath, "-debug", "annotate", "xc:", "-font", font, "-pointsize", String.valueOf(pointSize), "-annotate", "0", text, "null:");
-        logger.debug("Running command : " + pb.command().toString() );
+        logger.debug(pfx + "Running command : " + pb.command().toString() );
         Process p = pb.start();
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ByteArrayOutputStream baes = new ByteArrayOutputStream();
@@ -105,14 +105,14 @@ public class ImageMagickProcess {
         final String convertError = baes.toString("UTF-8");
 
         if (returnCode != 0) {
-            logger.debug("return code: " + returnCode);
-            logger.debug("command out: " + "\n" + convertOutput + "\n");
-            logger.debug("command err: " + "\n" + convertError + "\n");
+            logger.debug(pfx + "return code: " + returnCode);
+            logger.debug(pfx + "command out: " + "\n" + convertOutput + "\n");
+            logger.debug(pfx + "command err: " + "\n" + convertError + "\n");
             throw new RuntimeException("Invalid return code for process!");
         }
 
-        //logger.debug("convertOutput: " + "\n" + convertOutput);
-        //logger.debug("convertError: " + "\n" + convertError);
+        //logger.debug(pfx + "convertOutput: " + "\n" + convertOutput);
+        //logger.debug(pfx + "convertError: " + "\n" + convertError);
 
         Matcher m = pattern.matcher(convertError);
 
@@ -132,15 +132,15 @@ public class ImageMagickProcess {
                 maxHeight = h;
             }
 
-            //logger.debug("added line height " + h + "; total height now " + height);
+            //logger.debug(pfx + "added line height " + h + "; total height now " + height);
         }
 
         if (lines > 0) {
             height += lines * maxHeight;
-            //logger.debug("added " + lines + " lines worth of empty text using max line height of " + maxHeight + "; total height now " + height);
+            //logger.debug(pfx + "added " + lines + " lines worth of empty text using max line height of " + maxHeight + "; total height now " + height);
         }
 
-        logger.debug("determined text height " + height + " via font metrics");
+        logger.debug(pfx + "determined text height " + height + " via font metrics");
 
         if (height <= 0) {
             throw new RuntimeException("Invalid height calculated!");
@@ -149,14 +149,14 @@ public class ImageMagickProcess {
         return height;
     }
 
-    private int getTextHeightForTextWithFontAtPointSizeViaLabel(String text, String font, int pointSize) throws IOException, InterruptedException {
+    private int getTextHeightForTextWithFontAtPointSizeViaLabel(String pfx, String text, String font, int pointSize) throws IOException, InterruptedException {
         // determine height of multi-line text given a font at a specific
         // point size by creating a label and reading its height.
         // this label should be practically the same height as the annotation
         // created below (just a couple pixels bigger due to top/bottom margins).
         // plus it's a more stable way than parsing debug output, and is faster taboot
         ProcessBuilder pb = new ProcessBuilder(convertCommandPath, "-font", font, "-pointsize", String.valueOf(pointSize), "label:" + text, "-trim", "-format", "%h", "info:");
-        logger.debug("Running command : " + pb.command().toString() );
+        logger.debug(pfx + "Running command : " + pb.command().toString() );
         Process p = pb.start();
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ByteArrayOutputStream baes = new ByteArrayOutputStream();
@@ -173,42 +173,39 @@ public class ImageMagickProcess {
         final String convertError = baes.toString("UTF-8");
 
         if (returnCode != 0) {
-            logger.debug("return code: " + returnCode);
-            logger.debug("command out: " + "\n" + convertOutput + "\n");
-            logger.debug("command err: " + "\n" + convertError + "\n");
+            logger.debug(pfx + "return code: " + returnCode);
+            logger.debug(pfx + "command out: " + "\n" + convertOutput + "\n");
+            logger.debug(pfx + "command err: " + "\n" + convertError + "\n");
             throw new RuntimeException("Invalid return code for process!");
         }
 
         int height = Integer.parseInt(convertOutput);
 
-        logger.debug("determined text height " + height + " via label creation");
+        logger.debug(pfx + "determined text height " + height + " via label creation");
 
         if (height <= 0) {
-            throw new RuntimeException("Invalid height detected!");
-        }
-        if (height > 0) {
             throw new RuntimeException("Invalid height detected!");
         }
 
         return height;
     }
 
-    private int getTextHeightForTextWithFontAtPointSize(String text, String font, int pointSize) throws IOException, InterruptedException {
+    private int getTextHeightForTextWithFontAtPointSize(String pfx, String text, String font, int pointSize) throws IOException, InterruptedException {
         try {
-            return getTextHeightForTextWithFontAtPointSizeViaLabel(text, font, pointSize);
+            return getTextHeightForTextWithFontAtPointSizeViaLabel(pfx, text, font, pointSize);
         } catch (Exception ex) {
-            logger.error("Exception determining text height:", ex);
-            logger.warn("falling back to font metrics debug output parsing");
+            logger.error(pfx + "Exception determining text height:", ex);
+            logger.warn(pfx + "falling back to font metrics debug output parsing");
         }
 
-        return getTextHeightForTextWithFontAtPointSizeViaFontMetrics(text, font, pointSize);
+        return getTextHeightForTextWithFontAtPointSizeViaFontMetrics(pfx, text, font, pointSize);
     }
 
-    public void addBorder(File inputJpg, File outputJpg, String label) throws IOException, InterruptedException {
+    public void addBorder(String pfx, File inputJpg, File outputJpg, String label) throws IOException, InterruptedException {
         // determine size
         Pattern pattern = Pattern.compile("^.* JPEG (\\d+)x(\\d+) .*\\n$");
         ProcessBuilder pb = new ProcessBuilder(identifyCommandPath, inputJpg.getAbsolutePath());
-        logger.debug("Running command : " + pb.command().toString() );
+        logger.debug(pfx + "Running command : " + pb.command().toString() );
         Process p = pb.start();
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         Thread one = new Thread(new OutputDrainerThread(p.getInputStream(), baos));
@@ -219,8 +216,8 @@ public class ImageMagickProcess {
         final String identifyOutput = baos.toString("UTF-8");
 
         if (returnCode != 0) {
-            logger.debug("return code: " + returnCode);
-            logger.debug("command out: " + "\n" + identifyOutput + "\n");
+            logger.debug(pfx + "return code: " + returnCode);
+            logger.debug(pfx + "command out: " + "\n" + identifyOutput + "\n");
             throw new RuntimeException("Invalid return code for process!");
         }
         Matcher m = pattern.matcher(identifyOutput);
@@ -232,12 +229,12 @@ public class ImageMagickProcess {
             label = label + "\n";
 
             int pointSize = (int) ((float) (width>height ? width : height) * 0.02f);
-            int textBoxHeight = getTextHeightForTextWithFontAtPointSize(label, font, pointSize) + (pointSize * 2);
+            int textBoxHeight = getTextHeightForTextWithFontAtPointSize(pfx, label, font, pointSize) + (pointSize * 2);
 
             if ((width * 1.5) > height) {
                 if (height > width) {
                     pointSize = Math.round((float) pointSize / ((float) height / (float) width));
-                    textBoxHeight = getTextHeightForTextWithFontAtPointSize(label, font, pointSize) + (pointSize * 2);
+                    textBoxHeight = getTextHeightForTextWithFontAtPointSize(pfx, label, font, pointSize) + (pointSize * 2);
                 }
                 pb = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
                         "-border", (pointSize * 2) + "x" + textBoxHeight, 
@@ -246,7 +243,7 @@ public class ImageMagickProcess {
                         "-gravity", "south", 
                         "-annotate", "+0+0+5+5", label,
                         "-crop", (width + (pointSize * 2)) +"x" + (height + textBoxHeight + pointSize) + "+0+0", outputJpg.getAbsolutePath());
-                logger.debug("Running command : " + pb.command().toString() );
+                logger.debug(pfx + "Running command : " + pb.command().toString() );
                 p = pb.start();
             } else {
                 pb = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
@@ -259,7 +256,7 @@ public class ImageMagickProcess {
                         "-crop", (height + (pointSize * 2)) +"x" + (width + textBoxHeight + pointSize) + "+0+0", 
                         "-rotate", "-90",
                         outputJpg.getAbsolutePath());
-                logger.debug("Running command : " + pb.command().toString() );
+                logger.debug(pfx + "Running command : " + pb.command().toString() );
                 p = pb.start();
             }
             baos = new ByteArrayOutputStream();
@@ -272,8 +269,8 @@ public class ImageMagickProcess {
             err.join();
 
             if (returnCode != 0) {
-                logger.debug("return code: " + returnCode);
-                logger.debug("command out: " + "\n" + baos.toString("UTF-8") + "\n");
+                logger.debug(pfx + "return code: " + returnCode);
+                logger.debug(pfx + "command out: " + "\n" + baos.toString("UTF-8") + "\n");
                 throw new RuntimeException("Invalid return code for process! (" + returnCode + ", " + baos.toString("UTF-8") + ")");
             }
         } else {

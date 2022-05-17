@@ -501,7 +501,7 @@ public class ConvertServlet extends HttpServlet {
                 }
                 // add the frame
                 logger.debug(pfx + "[Add image frame]");
-                convert.addBorder(orig, framed, fullCitation);
+                convert.addBorder(pfx, orig, framed, fullCitation);
 
                 // add the exif
                 logger.debug(pfx + "[Add image exif]");
