@@ -49,6 +49,7 @@ public class ImageMagickProcess {
         convertCommandPath = path;
     }
 
+/*
     private void imGenericCommand(String ... args) throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder(args);
         logger.debug("Running command : " + pb.command().toString() );
@@ -80,13 +81,14 @@ public class ImageMagickProcess {
         imGenericCommand(convertCommandPath, "-list", "delegate");
         //imGenericCommand(convertCommandPath, "-list", "font");
     }
+*/
 
     private int getTextHeightForTextWithFontAtPointSizeViaFontMetrics(String text, String font, int pointSize) throws IOException, InterruptedException {
         // determine height of multi-line text given a font at a specific
         // point size by parsing imagemagick debug output
         Pattern pattern = Pattern.compile("^.*Metrics:.* height: (\\d+); .*$", Pattern.MULTILINE);
         ProcessBuilder pb = new ProcessBuilder(convertCommandPath, "-debug", "annotate", "xc:", "-font", font, "-pointsize", String.valueOf(pointSize), "-annotate", "0", text, "null:");
-        //logger.debug("Running command : " + pb.command().toString() );
+        logger.debug("Running command : " + pb.command().toString() );
         Process p = pb.start();
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ByteArrayOutputStream baes = new ByteArrayOutputStream();
@@ -138,17 +140,21 @@ public class ImageMagickProcess {
             //logger.debug("added " + lines + " lines worth of empty text using max line height of " + maxHeight + "; total height now " + height);
         }
 
-        logger.debug("height: " + height);
+        logger.debug("determined text height " + height + " via font metrics");
+
+        if (height <= 0) {
+            throw new RuntimeException("Invalid height calculated!");
+        }
 
         return height;
     }
 
-    private int getTextHeightForTextWithFontAtPointSize(String text, String font, int pointSize) throws IOException, InterruptedException {
-        imDebugInfo();
+    private int getTextHeightForTextWithFontAtPointSizeViaLabel(String text, String font, int pointSize) throws IOException, InterruptedException {
         // determine height of multi-line text given a font at a specific
         // point size by creating a label and reading its height.
         // this label should be practically the same height as the annotation
-        // created below, give or take a couple pixels (and is faster to generate).
+        // created below (just a couple pixels bigger due to top/bottom margins).
+        // plus it's a more stable way than parsing debug output, and is faster taboot
         ProcessBuilder pb = new ProcessBuilder(convertCommandPath, "-font", font, "-pointsize", String.valueOf(pointSize), "label:" + text, "-trim", "-format", "%h", "info:");
         logger.debug("Running command : " + pb.command().toString() );
         Process p = pb.start();
@@ -170,20 +176,32 @@ public class ImageMagickProcess {
             logger.debug("return code: " + returnCode);
             logger.debug("command out: " + "\n" + convertOutput + "\n");
             logger.debug("command err: " + "\n" + convertError + "\n");
-            logger.warn("falling back to font metrics debug output parsing");
-            return getTextHeightForTextWithFontAtPointSizeViaFontMetrics(text, font, pointSize);
+            throw new RuntimeException("Invalid return code for process!");
         }
 
         int height = Integer.parseInt(convertOutput);
-        logger.debug("height: " + height);
 
-        // if height is suspect, fall back to metrics?
+        logger.debug("determined text height " + height + " via label creation");
+
         if (height <= 0) {
-            logger.warn("falling back to font metrics debug output parsing");
-            return getTextHeightForTextWithFontAtPointSizeViaFontMetrics(text, font, pointSize);
+            throw new RuntimeException("Invalid height detected!");
+        }
+        if (height > 0) {
+            throw new RuntimeException("Invalid height detected!");
         }
 
         return height;
+    }
+
+    private int getTextHeightForTextWithFontAtPointSize(String text, String font, int pointSize) throws IOException, InterruptedException {
+        try {
+            return getTextHeightForTextWithFontAtPointSizeViaLabel(text, font, pointSize);
+        } catch (Exception ex) {
+            logger.error("Exception determining text height:", ex);
+            logger.warn("falling back to font metrics debug output parsing");
+        }
+
+        return getTextHeightForTextWithFontAtPointSizeViaFontMetrics(text, font, pointSize);
     }
 
     public void addBorder(File inputJpg, File outputJpg, String label) throws IOException, InterruptedException {
