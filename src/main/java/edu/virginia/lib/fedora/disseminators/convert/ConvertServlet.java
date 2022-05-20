@@ -185,13 +185,11 @@ public class ConvertServlet extends HttpServlet {
         logger.debug(pfx + "GET " + endpoint);
 
         if (endpoint.equals("/healthcheck")) {
-            logger.info("/healthcheck");
             healthcheckHandler(req, resp);
             return;
         }
 
         if (endpoint.equals("/version")) {
-            logger.info("/version");
             versionHandler(req, resp);
             return;
         }
