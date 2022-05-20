@@ -166,6 +166,7 @@ public class ConvertServlet extends HttpServlet {
         final String pfx = "[" + reqId + "] ";
 
         if (req.getParameter("about") != null) {
+            logger.info("about");
             showAbout(req, resp);
             return;
         }
@@ -176,6 +177,7 @@ public class ConvertServlet extends HttpServlet {
 
         // silence these in logs...
         if (endpoint.equals("/favicon.ico")) {
+            logger.info("/favicon.ico");
             ignoreHandler(req, resp);
             return;
         }
@@ -183,11 +185,13 @@ public class ConvertServlet extends HttpServlet {
         logger.debug(pfx + "GET " + endpoint);
 
         if (endpoint.equals("/healthcheck")) {
+            logger.info("/healthcheck");
             healthcheckHandler(req, resp);
             return;
         }
 
         if (endpoint.equals("/version")) {
+            logger.info("/version");
             versionHandler(req, resp);
             return;
         }
