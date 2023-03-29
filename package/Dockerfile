@@ -24,7 +24,7 @@ FROM public.ecr.aws/docker/library/jetty:9.4.50-jre8-alpine
 USER root
 
 # install updates and dependancies
-RUN apk update && apk upgrade && apk add imagemagick
+RUN apk update && apk upgrade && apk add --no-cache imagemagick msttcorefonts-installer fontconfig && update-ms-fonts && fc-cache -f
 
 # disable imagemagick policies
 RUN rm -f /etc/ImageMagick*/policy.xml
