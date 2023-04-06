@@ -228,13 +228,20 @@ public class ImageMagickProcess {
             int height = Integer.parseInt(m.group(2));
             label = label + "\n";
 
-            int pointSize = (int) ((float) (width>height ? width : height) * 0.02f);
+            logger.debug(pfx + "width: " + width);
+            logger.debug(pfx + "height: " + height);
+
+            int pointSize = (int) ((float) (width>height ? width : height) * 0.019f);
+            logger.debug(pfx + "point size: " + pointSize);
             int textBoxHeight = getTextHeightForTextWithFontAtPointSize(pfx, label, font, pointSize) + (pointSize * 2);
+            logger.debug(pfx + "text box height: " + textBoxHeight);
 
             if ((width * 1.5) > height) {
                 if (height > width) {
                     pointSize = Math.round((float) pointSize / ((float) height / (float) width));
+                    logger.debug(pfx + "point size: " + pointSize);
                     textBoxHeight = getTextHeightForTextWithFontAtPointSize(pfx, label, font, pointSize) + (pointSize * 2);
+                    logger.debug(pfx + "text box height: " + textBoxHeight);
                 }
                 pb = new ProcessBuilder(convertCommandPath, inputJpg.getAbsolutePath(),
                         "-border", (pointSize * 2) + "x" + textBoxHeight, 
