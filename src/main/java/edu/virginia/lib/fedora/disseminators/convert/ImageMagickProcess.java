@@ -24,7 +24,7 @@ public class ImageMagickProcess {
 
     private String identifyCommandPath;
 
-    private String font = "Times-Roman";
+    private String font = "Times-New-Roman";
 
     final Logger logger = LoggerFactory.getLogger(ImageMagickProcess.class);
 
@@ -49,7 +49,6 @@ public class ImageMagickProcess {
         convertCommandPath = path;
     }
 
-/*
     private void imGenericCommand(String pfx, String ... args) throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder(args);
         logger.debug(pfx + "Running command : " + pb.command().toString() );
@@ -79,9 +78,8 @@ public class ImageMagickProcess {
         imGenericCommand(pfx, convertCommandPath, "-list", "policy");
         imGenericCommand(pfx, convertCommandPath, "-list", "configure");
         imGenericCommand(pfx, convertCommandPath, "-list", "delegate");
-        //imGenericCommand(pfx, convertCommandPath, "-list", "font");
+        imGenericCommand(pfx, convertCommandPath, "-list", "font");
     }
-*/
 
     private int getTextHeightForTextWithFontAtPointSizeViaFontMetrics(String pfx, String text, String font, int pointSize) throws IOException, InterruptedException {
         // determine height of multi-line text given a font at a specific
@@ -202,6 +200,8 @@ public class ImageMagickProcess {
     }
 
     public void addBorder(String pfx, File inputJpg, File outputJpg, String label) throws IOException, InterruptedException {
+		imDebugInfo(pfx);
+
         // determine size
         Pattern pattern = Pattern.compile("^.* JPEG (\\d+)x(\\d+) .*\\n$");
         ProcessBuilder pb = new ProcessBuilder(identifyCommandPath, inputJpg.getAbsolutePath());
