@@ -49,6 +49,7 @@ public class ImageMagickProcess {
         convertCommandPath = path;
     }
 
+/*
     private void imGenericCommand(String pfx, String ... args) throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder(args);
         logger.debug(pfx + "Running command : " + pb.command().toString() );
@@ -80,6 +81,7 @@ public class ImageMagickProcess {
         imGenericCommand(pfx, convertCommandPath, "-list", "delegate");
         imGenericCommand(pfx, convertCommandPath, "-list", "font");
     }
+*/
 
     private int getTextHeightForTextWithFontAtPointSizeViaFontMetrics(String pfx, String text, String font, int pointSize) throws IOException, InterruptedException {
         // determine height of multi-line text given a font at a specific
@@ -200,7 +202,7 @@ public class ImageMagickProcess {
     }
 
     public void addBorder(String pfx, File inputJpg, File outputJpg, String label) throws IOException, InterruptedException {
-		imDebugInfo(pfx);
+		//imDebugInfo(pfx);
 
         // determine size
         Pattern pattern = Pattern.compile("^.* JPEG (\\d+)x(\\d+) .*\\n$");
@@ -231,7 +233,7 @@ public class ImageMagickProcess {
             logger.debug(pfx + "width: " + width);
             logger.debug(pfx + "height: " + height);
 
-            int pointSize = (int) ((float) (width>height ? width : height) * 0.019f);
+            int pointSize = (int) ((float) (width>height ? width : height) * 0.02f);
             logger.debug(pfx + "point size: " + pointSize);
             int textBoxHeight = getTextHeightForTextWithFontAtPointSize(pfx, label, font, pointSize) + (pointSize * 2);
             logger.debug(pfx + "text box height: " + textBoxHeight);
