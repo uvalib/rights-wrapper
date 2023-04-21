@@ -36,7 +36,7 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpHead;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
+import org.apache.http.impl.NoConnectionReuseStrategy;
 import org.apache.http.util.EntityUtils;
 import org.apache.solr.client.solrj.SolrServer;
 import org.apache.solr.client.solrj.SolrServerException;
@@ -111,7 +111,7 @@ public class ConvertServlet extends HttpServlet {
                 .setSocketTimeout(readTimeout * 1000)
                 .build();
 
-            client = HttpClientBuilder.create().setDefaultRequestConfig(config).setConnectionManager(new PoolingHttpClientConnectionManager()).build();
+            client = HttpClientBuilder.create().setDefaultRequestConfig(config).setConnectionReuseStrategy(NoConnectionReuseStrategy.INSTANCE).build();
 
             convert = new ImageMagickProcess();
 
