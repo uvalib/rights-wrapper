@@ -1,5 +1,5 @@
 # builder
-FROM public.ecr.aws/docker/library/amazoncorretto:8-al2022-jdk as builder
+FROM public.ecr.aws/docker/library/amazoncorretto:8-al2023-jdk as builder
 
 # update and install dependancies
 RUN yum -y update && yum -y install maven
@@ -18,7 +18,7 @@ RUN mvn install:install-file -Dfile=/build/lib/commons-imaging-1.0-20160119.0729
 RUN mvn clean package
 
 # base image
-FROM public.ecr.aws/docker/library/jetty:9.4.50-jre8-alpine
+FROM public.ecr.aws/docker/library/jetty:9.4.54-jre8-alpine
 
 # so we can install new packages
 USER root
